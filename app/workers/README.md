@@ -24,45 +24,45 @@ workers/
 ```python
 from rq import current_job
 from pydantic import ValidationError
-from app.schemas.simulation import SimulationConfig
+from app.dtos import SimulationConfig
 
 def process_simulation(config_data: dict) -> dict:
     """
     Main job handler for simulation processing.
-    
+
     Args:
         config_data: Simulation configuration dictionary
-        
+
     Returns:
         Result dictionary with outcome
-        
+
     Raises:
         ValidationError: If config_data is invalid
     """
     # Get job context for metadata tracking
     job = current_job()
-    
+
     # Validate input with Pydantic
     try:
         config = SimulationConfig(**config_data)
     except ValidationError as e:
         job.set_status('failed')
         raise ValueError(f"Invalid config: {e}")
-    
+
     # Update progress
     job.meta['status'] = 'initializing'
     job.meta['progress'] = 0
     job.save_meta()
-    
+
     # Simulate work
     for i in range(100):
         # ... processing logic ...
         job.meta['progress'] = i
         job.save_meta()
-    
+
     job.meta['status'] = 'completed'
     job.save_meta()
-    
+
     return {
         "status": "success",
         "result": {...},
@@ -73,6 +73,7 @@ def process_simulation(config_data: dict) -> dict:
 ## Key Patterns
 
 ### 1. Job Context Access
+
 ```python
 from rq import current_job
 
@@ -82,8 +83,9 @@ job.save_meta()
 ```
 
 ### 2. Input Validation with Pydantic
+
 ```python
-from app.schemas.simulation import SimulationConfig
+from app.dtos import SimulationConfig
 
 def handle_job(config_dict: dict):
     config = SimulationConfig(**config_dict)  # Validates here
@@ -91,6 +93,7 @@ def handle_job(config_dict: dict):
 ```
 
 ### 3. Progress Tracking
+
 ```python
 job.meta['progress'] = 10  # 0-100%
 job.meta['status'] = 'processing'
@@ -98,6 +101,7 @@ job.save_meta()
 ```
 
 ### 4. Error Handling
+
 ```python
 try:
     # ... logic ...

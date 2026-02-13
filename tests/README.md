@@ -54,7 +54,7 @@ ptw
 import pytest
 from unittest.mock import patch
 from app.workers.simulation import process_simulation
-from app.schemas import SimulationConfig
+from app.dtos import SimulationConfig
 
 def test_process_simulation_success(mock_job):
     """Test successful simulation execution."""
@@ -93,13 +93,13 @@ def test_with_mocks(mock_job, mock_redis, mock_queue):
     pass
 ```
 
-## Testing Schemas
+## Testing DTOs
 
 ```python
-# tests/unit/test_schemas.py
+# tests/unit/test_dtos.py
 import pytest
 from pydantic import ValidationError
-from app.schemas import SimulationConfig
+from app.dtos import SimulationConfig
 
 def test_valid_config():
     config = SimulationConfig(

@@ -5,6 +5,7 @@
 **IMPORTANT**: Before working on any task, always review the installed agent skills in the `.agents/` directory:
 
 ```bash
+.agents/skills/fastapi-templates/SKILL.md               # FastAPI patterns (if applicable)
 .agents/skills/kiss-dry-yagni/SKILL.md  # Design principles
 .agents/skills/python-background-jobs/SKILL.md         # RQ patterns & task queues
 .agents/skills/python-design-patterns/SKILL.md         # KISS, SRP, Composition
@@ -23,30 +24,74 @@ This ensures your implementation aligns with established best practices.
 
 ## Project Overview
 
-**Simulation App Solver** is a backend **worker service** that processes simulation jobs from a message broker (Redis). It is a pure background job processor with NO HTTP endpoints.
+**Simulation App Solver** is a backend **worker service** with optional **REST API** for job management.
 
-- **Stack**: RQ (task queue), Redis (message broker), Pydantic, RQ-Scheduler
+- **Stack**: RQ (task queue), Redis (message broker), Pydantic, FastAPI (optional), RQ-Scheduler
 - **Language**: Python >=3.10
 - **Package Manager**: `uv` (not pip/venv)
-- **Architecture**: Message broker-driven worker, pure background process
+- **Architecture**: Message broker-driven worker service with layered API
 
-## Architecture Essentials
+**Core**: Pure background job processor
+**Optional**: REST API for job enqueueing and status checks
 
-### Directory Structure & Patterns
+## Architecture Layers
+
+```
+┌─────────────────────────────────────────┐
+│         API Routes (HTTP)                │ ← FastAPI endpoints (optional)
+├─────────────────────────────────────────┤
+│  Controllers (Orchestration - optional)  │ ← Complex workflows
+├─────────────────────────────────────────┤
+│   Services (Shared Business Logic)      │ ← Reusable code between API & workers
+├─────────────────────────────────────────┤
+│     Workers (Job Execution - RQ)        │ ← Background task handlers
+├─────────────────────────────────────────┤
+│  Models, DTOs, Repositories (Data)      │ ← DB models, validation, data access
+├─────────────────────────────────────────┤
+│  Configs (Settings & Redis - singleton) │ ← Environment & infrastructure
+└─────────────────────────────────────────┘
+```
+
+**Data Flow:**
+
+1. API receives request → validates with **DTOs**
+2. Route optionally uses **Controller** for orchestration
+3. Logic handled by **Services** (shared between API & workers)
+4. Job enqueued to Redis → **Worker** executes logic
+5. Data persisted with **Models** & **Repositories**
+6. Configuration managed by **Configs** (singleton pattern)
+
+## Project Structure
 
 ```
 app/
-├── workers/             # RQ job handler modules
-│   ├── simulation.py    # Example: simulation job handler
-│   └── __init__.py
-├── core/
-│   ├── config.py        # Configuration & environment
-│   └── __init__.py      # Redis & Queue setup
-└── schemas/
-    └── __init__.py      # Pydantic models for validation
+├── api/                     # FastAPI routes (optional HTTP layer)
+│   ├── routes.py           # REST endpoints
+│   └── README.md
+├── configs/                # Configuration & Redis setup
+│   ├── environment_configuration.py  # Settings (Pydantic)
+│   ├── redis_configuration.py       # Redis singleton
+│   └── README.md
+├── workers/                # RQ job handlers (core execution)
+│   ├── hello_world.py     # Example job handler
+│   └── README.md
+├── services/               # Shared business logic (optional)
+│   ├── __init__.py        # Reusable services
+│   └── README.md
+├── controllers/            # API orchestration (optional)
+│   └── README.md
+├── dtos/                   # Request/Response validation
+│   ├── __init__.py        # Pydantic models (SimulationConfig, JobResult)
+│   └── README.md
+├── models/                 # Database models (optional)
+│   └── README.md
+├── repositories/           # Data access layer (optional)
+│   └── README.md
+├── main.py                 # FastAPI app entrypoint (optional)
+└── __init__.py
 ```
 
-**Worker Pattern**: Job handlers are async functions in `app/workers/`:
+**Worker Pattern**: Job handlers are functions in `app/workers/`:
 
 ```python
 # app/workers/simulation.py
@@ -64,10 +109,10 @@ def process_simulation(config: dict) -> dict:
 ### Key Technical Decisions
 
 - **Redis + RQ Only**: Message broker-based job processing; Redis is the **single source of truth** for tasks
-- **No HTTP Layer**: Pure background worker—no FastAPI or web framework
 - **CloudEvents Support**: Structured event publishing for inter-service communication
 - **Pydantic V2**: For job argument validation and message schemas
-- **No Monitoring HTTP**: Health monitoring done via Redis connection checks, not endpoints
+- **Layered Architecture**: Clean separation between API, services, workers, and data layers
+- **Optional HTTP Layer**: Can work as pure background worker or with optional FastAPI API
 
 ## Development Workflow
 
@@ -143,26 +188,30 @@ publish_event(CloudEvent(...))
 
 ## Key Files to Reference
 
-- [app/workers/simulation.py](app/workers/simulation.py) - Example job handler
-- [app/core/config.py](app/core/config.py) - Configuration & Redis setup
-- [app/schemas/**init**.py](app/schemas/__init__.py) - Pydantic validation models
+- [app/workers/hello_world.py](app/workers/hello_world.py) - Example job handler
+- [app/configs/redis_configuration.py](app/configs/redis_configuration.py) - Redis singleton setup
+- [app/dtos/**init**.py](app/dtos/__init__.py) - Pydantic validation models
+- [app/services/README.md](app/services/README.md) - Shared business logic patterns
 - [pyproject.toml](pyproject.toml) - RQ, Redis dependencies
 
 ## Guiding Principles
 
-1. **Message-Driven**: All business logic is job handler functions, not HTTP endpoints
+1. **Message-Driven**: Primary execution via job queue, optional HTTP API
 2. **State via Redis**: Job state/progress stored in Redis, not in-memory
-3. **Async-First**: Workers handle I/O-bound simulation tasks with `async/await`
-4. **No HTTP Layer**: Pure background process; no web framework overhead
+3. **Layered Architecture**: Clean separation of concerns (API → Services → Workers)
+4. **Async-First**: Workers handle I/O-bound tasks with `async/await`
 5. **Type Safety**: Validate job inputs with Pydantic before processing
+6. **Shared Services**: Reuse business logic between API and workers
 
 ## Documentation Index
 
 - **README**: [../../README.md](../../README.md) - Setup, quick start, Docker & Makefile
-- **Project Structure**: See [STRUCTURE.md](../../STRUCTURE.md) for complete directory layout
+- **Architecture**: [#architecture-layers](#architecture-layers) - Layered architecture overview
+- **API Guide**: [app/api/README.md](../../app/api/README.md) - HTTP endpoints & job management
 - **Worker Guide**: [app/workers/README.md](../../app/workers/README.md) - Patterns for job handlers
-- **Configuration**: [app/core/README.md](../../app/core/README.md) - Environment & Redis setup
-- **Schemas**: [app/schemas/README.md](../../app/schemas/README.md) - Pydantic validation models
+- **Services Guide**: [app/services/README.md](../../app/services/README.md) - Shared business logic
+- **DTOs Guide**: [app/dtos/README.md](../../app/dtos/README.md) - Request/Response validation
+- **Configuration**: [app/configs/README.md](../../app/configs/README.md) - Environment & Redis setup
 - **Testing**: [tests/README.md](../../tests/README.md) - Test setup & fixtures
 - **Infrastructure**: [Dockerfile](../../Dockerfile), [docker-compose.yml](../../docker-compose.yml), [Makefile](../../Makefile)
 - **Agent Skills**:
