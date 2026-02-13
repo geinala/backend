@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: solver-redis-prod
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data_prod:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    environment:
+      - REDIS_LOGLEVEL=warning
+    restart: always
+    networks:
+      - solver-network-prod
+
+  worker:
+    image: solver:latest
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RQ_QUEUE=default
+      - RQ_JOB_TIMEOUT=10m
+      - ENVIRONMENT=production
+    command: rq worker --worker-class rq.worker.SimpleWorker
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    networks:
+      - solver-network-prod
+    restart: always
+
+volumes:
+  redis_data_prod:
+
+networks:
+  solver-network-prod:
+    driver: bridge
