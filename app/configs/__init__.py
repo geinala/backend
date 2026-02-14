@@ -7,6 +7,13 @@ from app.configs.redis_configuration import (
     get_redis_client,
     get_queue,
 )
+from app.configs.worker_configuration import (
+    JobType,
+    WorkerConfiguration,
+    get_worker_config,
+    get_queue_for_job,
+    enqueue_job,
+)
 
 __all__ = [
     "EnvironmentConfiguration",
@@ -15,4 +22,9 @@ __all__ = [
     "get_redis_config",
     "get_redis_client",
     "get_queue",
+    "JobType",
+    "WorkerConfiguration",
+    "get_worker_config",
+    "get_queue_for_job",
+    "enqueue_job",
 ]

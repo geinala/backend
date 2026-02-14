@@ -15,4 +15,5 @@ dependencies = [
     "rq>=2.6.1",
     "rq-scheduler>=0.14.0",
     "sqlalchemy>=2.0.46",
+    "clerk-backend-api>=5.0.0",
 ]

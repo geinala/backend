@@ -6,69 +6,29 @@ FastAPI routes for job management and health checks.
 
 This module provides HTTP endpoints to:
 
-- **Enqueue jobs** - Submit tasks to the Redis queue
-- **Check job status** - Get job progress and results
-- **Health checks** - Monitor worker and Redis connectivity
-
-## Files
-
-### `routes.py`
-
-Main FastAPI router with job management endpoints.
-
-## Available Endpoints
-
-### Enqueue Hello World Job
-
-```http
-POST /jobs/hello-world
-```
-
-Request:
-
-```json
-{}
-```
-
-Response (202 Accepted):
-
-```json
-{
-  "job_id": "abc123",
-  "status": "queued",
-  "message": "Job abc123 queued successfully"
-}
-```
-
-### Get Job Status
-
-```http
-GET /jobs/status/{job_id}
-```
-
-Response:
-
-```json
-{
-  "job_id": "abc123",
-  "status": "started",
-  "result": null,
-  "error": null
-}
-```
-
-Possible status values:
-
-- `queued` - Waiting in queue
-- `started` - Currently running
-- `succeeded` - Completed successfully
-- `failed` - Job failed
-- `stopped` - Job was stopped
-- `scheduled` - Scheduled for later
+- **Enqueue jobs** - Submit tasks to the Redis queue via controllers
+- **Check job status** - Retrieve job progress and results
+- **Handle errors** - Return appropriate HTTP responses with structured error data
 
 ## Creating New Endpoints
 
-### 1. Define Request/Response Models
+### Architecture Flow
+
+```
+FastAPI Route (HTTP)
+        ↓
+Controller (Orchestration + Validation)
+        ↓
+Service (Business Logic)
+        ↓
+Worker (Background Execution via RQ)
+        ↓
+Redis Queue
+```
+
+### Step 1: Define Request/Response Models
+
+Create DTOs in `app/dtos/`:
 
 ```python
 from pydantic import BaseModel
@@ -86,160 +46,276 @@ class MyJobResponse(BaseModel):
     message: str
 ```
 
-### 2. Create Route Handler
+### Step 2: Create Custom Exception (if needed)
+
+In `app/exceptions/base.py`:
+
+```python
+from fastapi import status
+
+class JobException(Exception):
+    """Base exception for job-related errors."""
+    def __init__(self, message: str, status_code: int = status.HTTP_400_BAD_REQUEST):
+        self.message = message
+        self.status_code = status_code
+        super().__init__(self.message)
+
+class JobNotFoundError(JobException):
+    """Raised when job is not found."""
+    def __init__(self, job_id: str):
+        super().__init__(
+            f"Job {job_id} not found",
+            status_code=status.HTTP_404_NOT_FOUND
+        )
+```
+
+### Step 3: Create Service
+
+In `app/services/job_service.py`:
+
+```python
+from app.lib.logging import get_logger
+from app.configs import get_queue, get_redis_client
+from rq.job import Job, NoSuchJobError
+
+logger = get_logger(__name__)
+
+class JobService:
+    """Business logic for job operations."""
+
+    @staticmethod
+    def enqueue_my_job(param1: str, param2: int) -> str:
+        """Enqueue a new job and return job ID."""
+        try:
+            logger.info(f"Enqueuing job with param1={param1}, param2={param2}")
+
+            queue = get_queue()
+            job = queue.enqueue(
+                'app.workers.my_module.my_job',
+                param1=param1,
+                param2=param2,
+                job_timeout='30m'
+            )
+
+            logger.info(f"Job enqueued successfully: {job.id}")
+            return job.id
+        except Exception as e:
+            logger.error(f"Failed to enqueue job: {str(e)}")
+            raise
+
+    @staticmethod
+    def get_job_status(job_id: str) -> dict:
+        """Get job status and result."""
+        try:
+            logger.info(f"Fetching status for job: {job_id}")
+
+            redis = get_redis_client()
+            job = Job.fetch(job_id, connection=redis)
+
+            return {
+                "job_id": job.id,
+                "status": job.get_status(),
+                "result": job.result,
+                "error": job.exc_info
+            }
+        except NoSuchJobError:
+            logger.warning(f"Job not found: {job_id}")
+            raise
+        except Exception as e:
+            logger.error(f"Error fetching job status: {str(e)}")
+            raise
+```
+
+### Step 4: Create Controller
+
+In `app/controllers/job_controller.py`:
+
+```python
+from app.lib.logging import get_logger
+from app.services.job_service import JobService
+from app.dtos import MyJobRequest, MyJobResponse
+from app.api.exceptions import JobNotFoundError
+from rq.job import NoSuchJobError
+
+logger = get_logger(__name__)
+
+class JobController:
+    """Orchestrate job operations between routes and services."""
+
+    @staticmethod
+    def enqueue_my_job(request: MyJobRequest) -> dict:
+        """Handle enqueue job request."""
+        try:
+            logger.info(f"Controller: Processing enqueue job request - {request}")
+
+            job_id = JobService.enqueue_my_job(
+                param1=request.param1,
+                param2=request.param2
+            )
+
+            logger.info(f"Controller: Job enqueued successfully - {job_id}")
+            return {
+                "job_id": job_id,
+                "status": "queued",
+                "message": f"Job {job_id} queued successfully"
+            }
+        except Exception as e:
+            logger.error(f"Controller: Error enqueuing job - {str(e)}")
+            raise
+
+    @staticmethod
+    def get_job_status(job_id: str) -> dict:
+        """Handle get job status request."""
+        try:
+            logger.info(f"Controller: Fetching job status - {job_id}")
+
+            status_data = JobService.get_job_status(job_id)
+
+            logger.info(f"Controller: Job status retrieved - {job_id}")
+            return status_data
+        except NoSuchJobError:
+            logger.warning(f"Controller: Job not found - {job_id}")
+            raise JobNotFoundError(job_id)
+        except Exception as e:
+            logger.error(f"Controller: Error getting job status - {str(e)}")
+            raise
+```
+
+### Step 5: Create Route Handler
+
+In `app/api/jobs.py`:
 
 ```python
 from fastapi import APIRouter, HTTPException
-from rq import Queue
-from redis import Redis
+from app.lib.logging import get_logger
+from app.controllers.job_controller import JobController
+from app.dtos import MyJobRequest, MyJobResponse
+from app.api.exceptions.base import JobException
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 @router.post("/my-job", response_model=MyJobResponse)
 async def enqueue_my_job(request: MyJobRequest):
+    """Enqueue a new my job with the given parameters."""
     try:
-        redis = Redis()
-        q = Queue(connection=redis)
+        logger.info("Route: Received enqueue my job request")
 
-        # Enqueue job with parameters
-        job = q.enqueue(
-            'app.workers.my_module.my_job',
-            {'param1': request.param1, 'param2': request.param2},
-            job_timeout='30m'
-        )
+        response = JobController.enqueue_my_job(request)
 
-        return MyJobResponse(
-            job_id=job.id,
-            status="queued",
-            message=f"Job {job.id} queued successfully"
-        )
+        logger.info(f"Route: Returning response - {response}")
+        return MyJobResponse(**response)
+    except JobException as e:
+        logger.error(f"Route: Job exception - {e.message}")
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
+        logger.error(f"Route: Unexpected error - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 ```
 
-### 3. Best Practices
+### Step 6: Create Worker
 
-✅ **Always use config for Redis**
+In `app/workers/my_module.py`:
 
 ```python
-from app.configs import get_redis_client, get_queue
+from app.lib.logging import get_logger
+from rq import current_job
 
-redis = get_redis_client()
-queue = get_queue()
+logger = get_logger(__name__)
+
+def my_job(param1: str, param2: int) -> dict:
+    """Execute my job in background."""
+    job = current_job()
+
+    try:
+        logger.info(f"Worker: Starting job {job.id} with param1={param1}, param2={param2}")
+
+        # Simulate work
+        result = {"param1": param1, "param2": param2, "computed": param2 * 2}
+
+        logger.info(f"Worker: Job {job.id} completed successfully")
+        return result
+    except Exception as e:
+        logger.error(f"Worker: Job {job.id} failed - {str(e)}")
+        raise
+```
+
+## Best Practices
+
+✅ **Always implement the full layer chain: Route → Controller → Service → Worker**
+
+- Routes validate HTTP input
+- Controllers orchestrate business logic
+- Services contain reusable business logic
+- Workers execute long-running tasks
+
+✅ **Use logging at every layer**
+
+```python
+logger = get_logger(__name__)
+logger.info(f"Layer: Action - Details")
 ```
 
 ✅ **Use type hints and Pydantic models**
 
 ```python
-class MyRequest(BaseModel):
-    name: str
-    timeout: Optional[int] = 300
+from pydantic import BaseModel
+
+class Request(BaseModel):
+    field: str
+    value: int = 10
 ```
 
-✅ **Handle errors gracefully**
+✅ **Use config for infrastructure**
 
 ```python
-try:
-    job = q.enqueue(...)
-except Exception as e:
-    raise HTTPException(status_code=500, detail=str(e))
-```
-
-✅ **Document with docstrings**
-
-```python
-@router.post("/my-job")
-async def enqueue_my_job(request: MyJobRequest):
-    """Enqueue a new my job with the given parameters."""
-    ...
-```
-
-❌ **Avoid direct Redis calls**
-
-```python
-# Bad - Don't do this
-redis = Redis(host='localhost', port=6379)
-
-# Good - Use config
-from app.configs import get_redis_client
+from app.configs import get_redis_client, get_queue
 redis = get_redis_client()
+queue = get_queue()
 ```
 
-## Error Handling
-
-### Job Not Found
+✅ **Create custom exceptions for domain errors**
 
 ```python
-from rq.job import Job, NoSuchJobError
+from app.api.exceptions import JobException, JobNotFoundError
+```
+
+✅ **Handle errors gracefully with appropriate HTTP status codes**
+
+```python
+from fastapi import HTTPException, status
 
 try:
-    job = Job.fetch(job_id, connection=redis)
-except NoSuchJobError:
-    raise HTTPException(status_code=404, detail="Job not found")
+    result = service.operation()
+except CustomError as e:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 ```
 
-### Invalid Parameters
+❌ **Avoid mixing concerns**
 
 ```python
-from pydantic import ValidationError
+# Bad - Business logic in routes
+@router.post("/job")
+def create_job(config: dict):
+    redis = Redis()
+    queue = Queue(connection=redis)
+    queue.enqueue('worker.task', config)
 
-try:
-    config = MyModel(**params)
-except ValidationError as e:
-    raise HTTPException(status_code=400, detail=str(e))
+# Good - Separate layers
+@router.post("/job")
+async def create_job(request: JobRequest):
+    return JobController.create_job(request)
 ```
 
-## Testing
+❌ **Avoid hardcoded values**
 
 ```python
-from fastapi.testclient import TestClient
-from app.main import app
+# Bad
+job = q.enqueue('worker.task', timeout='30m')
 
-client = TestClient(app)
-
-def test_enqueue_hello_world():
-    response = client.post("/jobs/hello-world")
-    assert response.status_code == 200
-    data = response.json()
-    assert "job_id" in data
-    assert data["status"] == "queued"
-
-def test_get_job_status():
-    response = client.get("/jobs/status/invalid-id")
-    assert response.status_code == 404
+# Good
+job = q.enqueue(
+    'worker.task',
+    job_timeout=settings.RQ_JOB_TIMEOUT
+)
 ```
-
-## Integration with Workers
-
-When enqueuing a job, the path must match the worker function:
-
-```python
-# Route: app/api/routes.py
-job = q.enqueue('app.workers.simulation.process_simulation', {...})
-
-# Worker: app/workers/simulation.py
-def process_simulation(config: dict) -> dict:
-    ...
-```
-
-## Architecture
-
-```
-FastAPI Routes (HTTP)
-        ↓
-Pydantic Models (Validation)
-        ↓
-RQ Queue (Enqueuing)
-        ↓
-Redis (Message Broker)
-        ↓
-RQ Worker (Execution)
-```
-
-**Request flow:**
-
-1. Client sends HTTP request with JSON
-2. Pydantic validates request data
-3. Route handler enqueues job to Redis
-4. Returns job ID and status
-5. Client can poll `/status/{job_id}` for progress
