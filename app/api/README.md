@@ -2,8 +2,6 @@
 
 FastAPI routes for job management and health checks.
 
-## Purpose
-
 This module provides HTTP endpoints to:
 
 - **Enqueue jobs** - Submit tasks to the Redis queue via controllers
@@ -12,7 +10,11 @@ This module provides HTTP endpoints to:
 
 ## Creating New Endpoints
 
+Follow this architecture when creating endpoints:
+
 ### Architecture Flow
+
+Here's how requests flow through your API to background jobs:
 
 ```
 FastAPI Route (HTTP)
@@ -26,7 +28,7 @@ Worker (Background Execution via RQ)
 Redis Queue
 ```
 
-### Step 1: Define Request/Response Models
+### Step 1: Define Request and Response Models
 
 Create DTOs in `app/dtos/`:
 
@@ -46,9 +48,9 @@ class MyJobResponse(BaseModel):
     message: str
 ```
 
-### Step 2: Create Custom Exception (if needed)
+### Step 2: Create Custom Exception for Error Handling
 
-In `app/exceptions/base.py`:
+In `app/exceptions/base.py`, define exceptions for your domain:
 
 ```python
 from fastapi import status
@@ -71,7 +73,7 @@ class JobNotFoundError(JobException):
 
 ### Step 3: Create Service
 
-In `app/services/job_service.py`:
+Create your business logic in `app/services/job_service.py`:
 
 ```python
 from app.lib.logging import get_logger

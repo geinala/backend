@@ -1,16 +1,17 @@
 # Tests Directory
 
-Unit and integration tests for the worker service.
+Unit and integration tests for your worker service.
 
-## Purpose
+You write tests to validate:
 
-Test coverage for:
 - Job handlers validation and logic
 - Pydantic schema validation
 - Configuration loading
 - Redis/RQ integration
 
 ## Structure
+
+Your tests are organized as follows:
 
 ```
 tests/
@@ -28,24 +29,7 @@ tests/
 
 ## Running Tests
 
-```bash
-# All tests
-pytest
-
-# With coverage
-pytest --cov=app
-
-# Specific file
-pytest tests/unit/test_config.py
-
-# Verbose output
-pytest -v
-
-# Watch mode (if pytest-watch installed)
-ptw
-```
-
-## Writing Tests for Job Handlers
+Run your tests with these commands:
 
 ### Example: Test Simulation Handler
 
@@ -64,7 +48,7 @@ def test_process_simulation_success(mock_job):
             "parameters": {},
             "timeout": 300
         })
-        
+
         assert result["status"] == "success"
         assert "result" in result
         assert mock_job.save_meta.called
@@ -95,25 +79,27 @@ def test_with_mocks(mock_job, mock_redis, mock_queue):
 
 ## Testing DTOs
 
+Test your DTOs to ensure they validate correctly:
+
 ```python
-# tests/unit/test_dtos.py
-import pytest
 from pydantic import ValidationError
 from app.dtos import SimulationConfig
 
 def test_valid_config():
     config = SimulationConfig(
-        name="test",
-        parameters={"x": 1}
-    )
-    assert config.name == "test"
+    name="test",
+    parameters={"x": 1}
+)
+
+assert config.name == "test"
 
 def test_invalid_name_type():
     with pytest.raises(ValidationError):
-        SimulationConfig(
-            name=123,  # Should be string
-            parameters={}
-        )
+    SimulationConfig(
+    name=123, # Should be string
+    parameters={}
+)
+
 ```
 
 ## Testing Configuration
@@ -127,7 +113,7 @@ def test_settings_from_env(monkeypatch):
     """Test settings loading from environment variables."""
     monkeypatch.setenv("REDIS_HOST", "test-host")
     monkeypatch.setenv("REDIS_PORT", "9999")
-    
+
     settings = Settings()
     assert settings.REDIS_HOST == "test-host"
     assert settings.REDIS_PORT == 9999
@@ -149,12 +135,12 @@ def test_job_enqueue_and_process():
     """Test enqueuing and processing a job."""
     redis = Redis(host="localhost", port=6379)
     q = Queue(connection=redis)
-    
+
     job = q.enqueue(process_simulation, {
         "name": "integration_test",
         "parameters": {}
     })
-    
+
     assert job.id is not None
     # Additional assertions
 ```
@@ -162,6 +148,7 @@ def test_job_enqueue_and_process():
 ## Coverage Requirements
 
 Aim for:
+
 - ✅ 80%+ coverage on `app/workers/`
 - ✅ 80%+ coverage on `app/schemas/`
 - ✅ 100% coverage on `app/core/config.py`
@@ -181,7 +168,7 @@ In GitHub Actions or similar CI:
 ```yaml
 - name: Run tests
   run: pytest --cov=app
-  
+
 - name: Check coverage
   if: ${{ github.event_name == 'pull_request' }}
   run: pytest --cov=app --cov-fail-under=80

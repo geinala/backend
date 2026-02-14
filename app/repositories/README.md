@@ -1,8 +1,6 @@
 # Repositories Module
 
-Data access layer for database operations (optional - for when database support is added).
-
-## Purpose
+Data access layer for database operations that you need for persistent storage.
 
 This module provides:
 
@@ -34,15 +32,12 @@ Repositories isolate database access so services can focus on business logic.
 
 Use repositories when:
 
-✅ **Working with a SQL database**
+- You're working with a SQL database
+- You need to isolate data access logic from business logic
+- Multiple services query the same entities
+- You want to mock data in tests
 
-✅ **You need to isolate data access logic**
-
-✅ **Multiple services query the same entities**
-
-✅ **You want to mock data in tests**
-
-❌ **Not needed for:**
+You don't need repositories for:
 
 - Pure Redis-based operations (use RQ directly)
 - Simple key-value access (access Redis directly)
@@ -50,9 +45,9 @@ Use repositories when:
 
 ##Current Status
 
-**Repositories are optional for the Simulation App Solver.**
+Repositories are optional for the Simulation App Solver.
 
-The core application uses Redis for all state. Add repositories when you need persistent database storage for:
+The core application uses Redis for all state. You can add repositories when you need persistent database storage for:
 
 - Simulation history and results
 - User configuration
@@ -61,12 +56,17 @@ The core application uses Redis for all state. Add repositories when you need pe
 
 ## Example Repository
 
+Create repository patterns for your data access needs.
+
 ### Basic Repository Pattern
 
-```python
-# app/repositories/simulation_repository.py
+Use this pattern for simple CRUD operations:
 
-from app.lib.logging import get_logger
+`app/repositories/simulation_repository.py`
+
+```python
+
+from app.lib import get_logger
 from app.models import Simulation
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
@@ -75,7 +75,7 @@ from typing import Optional, List
 logger = get_logger(__name__)
 
 class SimulationRepository:
-    """Repository for Simulation database operations."""
+"""Repository for Simulation database operations."""
 
     def __init__(self, db: Session):
         """Initialize repository with database session."""
@@ -228,6 +228,7 @@ class SimulationRepository:
             logger.error(f"Repository: Delete failed - {str(e)}")
             self.db.rollback()
             raise
+
 ```
 
 ### Using Repository in Service
@@ -235,7 +236,7 @@ class SimulationRepository:
 ```python
 # app/services/simulation_service.py
 
-from app.lib.logging import get_logger
+from app.lib import get_logger
 from app.repositories import SimulationRepository
 from sqlalchemy.orm import Session
 

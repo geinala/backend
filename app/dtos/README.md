@@ -1,8 +1,6 @@
 # DTOs Module
 
-Data Transfer Objects - Request/Response validation models for API layer.
-
-## Purpose
+Data Transfer Objects (DTOs) validate and structure your request and response data.
 
 This module contains Pydantic models for:
 
@@ -12,6 +10,8 @@ This module contains Pydantic models for:
 - **Job configuration** - Structured data for job parameters passed to workers
 
 ## Architecture Position
+
+DTOs form the contract between layers and ensure type safety:
 
 ```
 FastAPI Route (HTTP)
@@ -25,9 +25,11 @@ Worker (validates DTOs from job params)
 Redis Queue
 ```
 
-DTOs form the contract between layers - ensuring type safety across the entire request/response cycle.
+DTOs ensure type safety across the entire request/response cycle.
 
 ## File Organization
+
+Your DTOs are organized in the following structure:
 
 ```
 dtos/
@@ -40,7 +42,7 @@ dtos/
 
 ## Creating Request DTOs
 
-Request DTOs validate HTTP input in API routes:
+Create request DTOs in `app/dtos/` to validate HTTP input in API routes:
 
 ```python
 from pydantic import BaseModel, Field
@@ -67,7 +69,7 @@ class SimulationRequest(BaseModel):
 
 ## Creating Response DTOs
 
-Response DTOs format HTTP output:
+Create response DTOs to format HTTP output:
 
 ```python
 from pydantic import BaseModel, Field
@@ -93,20 +95,18 @@ class SimulationResultResponse(BaseModel):
 
 ## Using DTOs in Routes
 
+Use DTOs when creating routes:
+
 ```python
-from fastapi import APIRouter, HTTPException
-from app.lib.logging import get_logger
-from app.controllers.simulation_controller import SimulationController
-from app.dtos import SimulationRequest, SimulationResponse
 from app.api.exceptions import APIException
 
-logger = get_logger(__name__)
+logger = get_logger(**name**)
 router = APIRouter(prefix="/simulations", tags=["simulations"])
 
 @router.post("/", response_model=SimulationResponse)
 async def enqueue_simulation(request: SimulationRequest) -> SimulationResponse:
-    """
-    Enqueue a new simulation job.
+"""
+Enqueue a new simulation job.
 
     - Request is auto-validated by Pydantic
     - Response fields are auto-serialized to JSON
@@ -125,6 +125,7 @@ async def enqueue_simulation(request: SimulationRequest) -> SimulationResponse:
     except Exception as e:
         logger.error(f"Route: Unexpected error - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 ```
 
 ## Using DTOs in Controllers
@@ -132,7 +133,7 @@ async def enqueue_simulation(request: SimulationRequest) -> SimulationResponse:
 Controllers use request DTOs to validate and pass data to services:
 
 ```python
-from app.lib.logging import get_logger
+from app.lib import get_logger
 from app.dtos import SimulationRequest
 from app.services.simulation_service import SimulationService
 from app.api.exceptions import ValidationError
@@ -171,7 +172,7 @@ class SimulationController:
 Services use DTOs for structured data and type safety:
 
 ```python
-from app.lib.logging import get_logger
+from app.lib import get_logger
 from app.dtos import SimulationRequest
 from app.configs import get_queue
 
@@ -207,7 +208,7 @@ class SimulationService:
 Workers receive job parameters and can re-validate with DTOs:
 
 ```python
-from app.lib.logging import get_logger
+from app.lib import get_logger
 from app.dtos import SimulationRequest
 from pydantic import ValidationError
 from rq import current_job

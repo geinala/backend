@@ -2,16 +2,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.configs import get_environment_configuration
 from app.api import get_routers
-from app.lib.logging import get_logger
+from app.lib import get_logger
+from app.middleware.logging_middleware import WideEventMiddleware
 
 logger = get_logger(__name__)
 
 
 def create_app() -> FastAPI:
     settings = get_environment_configuration()
-    logger.info(f"Creating FastAPI app - Title: {settings.API_TITLE}, Version: {settings.API_VERSION}")
-    logger.info(f"CORS Origins: {settings.CORS_ALLOW_ORIGINS}")
-    logger.info(f"Docs enabled: {settings.ENABLE_DOCS}, ReDoc: {settings.ENABLE_REDOC}, OpenAPI: {settings.ENABLE_OPENAPI}")
+    
+    # Log app initialization
+    logger.info({
+        "event_type": "app_startup",
+        "title": settings.API_TITLE,
+        "version": settings.API_VERSION,
+        "environment": settings.ENVIRONMENT,
+    })
     
     # Configure docs URLs based on settings
     docs_url = "/docs" if settings.ENABLE_DOCS else None
@@ -27,6 +33,9 @@ def create_app() -> FastAPI:
         openapi_url=openapi_url,
     )
     
+    # Add middleware for wide events (must be first to capture all requests)
+    app.add_middleware(WideEventMiddleware)
+    
     # Set up CORS middleware with configuration
     app.add_middleware(
         CORSMiddleware,
@@ -41,7 +50,10 @@ def create_app() -> FastAPI:
     # Include all routers
     for router in get_routers():
         app.include_router(router)
-        logger.info(f"Registered router: {router.tags}")
+        logger.info({
+            "event_type": "router_registered",
+            "tags": router.tags,
+        })
     
     return app
 
@@ -53,7 +65,11 @@ if __name__ == "__main__":
     import uvicorn
     settings = get_environment_configuration()
     
-    logger.info(f"Starting server at {settings.API_HOST}:{settings.API_PORT}")
+    logger.info({
+        "event_type": "server_start",
+        "host": settings.API_HOST,
+        "port": settings.API_PORT,
+    })
     
     uvicorn.run(
         "app.main:app",

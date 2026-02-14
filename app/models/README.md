@@ -1,8 +1,6 @@
 # Models Module
 
-Database models and domain entities (optional - for future database support).
-
-## Purpose
+Database models and domain entities for when you add database support.
 
 This module contains:
 
@@ -14,33 +12,33 @@ This module contains:
 
 Use models when your application needs:
 
-- ✅ Persistent data storage (SQL database)
-- ✅ Complex queries and relationships
-- ✅ Data migrations and versioning
-- ✅ Audit trails and historical data
-- ✅ User/configuration management
+- Persistent data storage using a SQL database
+- Complex queries and relationships
+- Data migrations and versioning
+- Audit trails and historical data
+- User and configuration management
 
-❌ **Not needed for:**
+You don't need models for:
 
-- Pure message-driven worker services (data in Redis)
-- Simple key-value storage (can use Redis directly)
-- Job metadata (RQ handles this in Redis)
+- Pure message-driven worker services with data stored in Redis
+- Simple key-value storage (access Redis directly)
+- Job metadata (RQ handles this automatically in Redis)
 
 ## Current Status
 
-**The Simulation App Solver is primarily a message-driven worker service.**
+The Simulation App Solver is primarily a message-driven worker service.
 
-- Jobs and metadata stored in **Redis** (via RQ)
-- No database required for core functionality
-- Models are optional for future expansion
+Jobs and metadata are stored in Redis via RQ. You don't need a database for core functionality, but models are optional for future expansion.
 
-## Setting Up Database Support (If Needed)
+## Setting Up Database Support (if Needed)
 
 ### Option 1: Simple Models
 
-```python
-# app/models/__init__.py
+Use this approach when you don't need complex relationships:
 
+`app/models/__init__.py`
+
+```python
 from sqlalchemy import Column, Integer, String, DateTime, create_engine
 from sqlalchemy.orm import declarative_base, Session
 from datetime import datetime
@@ -48,7 +46,7 @@ from datetime import datetime
 Base = declarative_base()
 
 class Simulation(Base):
-    """Simulation job record."""
+"""Simulation job record."""
 
     __tablename__ = "simulations"
 
@@ -61,7 +59,7 @@ class Simulation(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class JobLog(Base):
-    """Job execution log."""
+"""Job execution log."""
 
     __tablename__ = "job_logs"
 
@@ -70,13 +68,16 @@ class JobLog(Base):
     message = Column(String)
     level = Column(String)  # debug, info, warning, error
     created_at = Column(DateTime, default=datetime.utcnow)
+
 ```
 
 ### Option 2: With SQLAlchemy ORM
 
-```python
-# app/models/__init__.py
+Use this approach when you have relationships between models:
 
+`app/models/__init__.py`
+
+```python
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
@@ -84,8 +85,8 @@ from datetime import datetime
 Base = declarative_base()
 
 class User(Base):
-    """User model."""
-    __tablename__ = "users"
+"""User model."""
+**tablename** = "users"
 
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True, index=True)
@@ -93,8 +94,8 @@ class User(Base):
     jobs = relationship("Simulation", back_populates="user")
 
 class Simulation(Base):
-    """Simulation model with user relationship."""
-    __tablename__ = "simulations"
+"""Simulation model with user relationship."""
+**tablename** = "simulations"
 
     id = Column(Integer, primary_key=True)
     job_id = Column(String, unique=True, index=True)
@@ -104,6 +105,7 @@ class Simulation(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="jobs")
+
 ```
 
 ## Using Models with Repositories
@@ -111,13 +113,15 @@ class Simulation(Base):
 Models work with repositories for data access:
 
 ```
+
 Route/Controller
-    ↓
+↓
 Service (uses Repository for data)
-    ↓
+↓
 Repository (uses Model for queries)
-    ↓
+↓
 Database (SQLAlchemy ORM)
+
 ```
 
 Example with repository:
@@ -157,7 +161,7 @@ Then use in service:
 ```python
 # app/services/simulation_service.py
 
-from app.lib.logging import get_logger
+from app.lib import get_logger
 from app.repositories import SimulationRepository
 from sqlalchemy.orm import Session
 

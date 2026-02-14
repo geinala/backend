@@ -2,8 +2,6 @@
 
 Reusable business logic layer for shared operations between controllers and workers.
 
-## Purpose
-
 This module provides:
 
 - **Shared business logic** - Code used by both workers and controllers
@@ -30,23 +28,25 @@ Services contain pure business logic that can be called from multiple layers.
 
 ## When to Use Services
 
-✅ **Use services for:**
+Use services for:
 
 - Logic shared between controllers and workers
 - Complex data transformations and calculations
 - Business rule validations
-- External API integrations (payment, email, SMS, etc.)
+- External API integrations (payment, email, SMS)
 - Database queries via repositories
 - Multi-step workflows
 
-❌ **Don't use services for:**
+Don't use services for:
 
-- HTTP concerns (keep in routes/controllers)
+- HTTP concerns (keep in routes and controllers)
 - Job enqueueing (keep in controllers)
 - RQ job context access (keep in workers)
 - Infrastructure setup (keep in configs)
 
 ## Service Patterns
+
+Here are common patterns for implementing services effectively.
 
 ### 1. Validation Service (Recommended)
 
@@ -200,10 +200,10 @@ class SimulationController:
 
             # Step 3: Enqueue to appropriate queue based on job type
             logger.info(f"Controller: Enqueueing job")
-            
+
             # Use JobType to route to correct worker pool
             from app.configs import JobType, enqueue_job
-            
+
             # For heavy processing (large simulations)
             if request.iterations > 5000:
                 logger.info(f"Controller: Routing to heavy queue (high iteration count)")
@@ -231,7 +231,6 @@ class SimulationController:
         except Exception as e:
             logger.error(f"Controller: Error - {str(e)}")
             raise
-```
 ```
 
 ## Using Services in Workers

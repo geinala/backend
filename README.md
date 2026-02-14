@@ -1,21 +1,25 @@
 # Simulation App Solver Backend
 
-Production-ready **message-driven worker service** for processing simulation jobs via Redis message broker (RQ).
+Production-ready message-driven worker service for processing simulation jobs via Redis message broker (RQ).
 
-- **Pure background processor** - Async job execution via RQ & Redis
-- **Optional FastAPI** - REST API for job enqueueing (optional)
-- **Type-safe** - Pydantic V2 DTOs and full type hints
-- **Production-ready** - Logging, error handling, configuration management
-- **Python 3.10+** with `uv` package manager
+Key features include:
+
+- Pure background processor with async job execution via RQ and Redis
+- Optional FastAPI REST API for job enqueueing
+- Full type safety with Pydantic V2 DTOs and type hints
+- Production-ready logging, error handling, and configuration management
+- Python 3.10+ with the `uv` package manager
 
 ## Quick Start
 
 ### Prerequisites
 
-1. **Python 3.10+**
-2. **uv** package manager ([install](https://docs.astral.sh/uv/)).
-3. **Redis** server running
-4. **Make** (for Makefile commands)
+You need the following installed:
+
+- Python 3.10 or later
+- `uv` package manager ([install](https://docs.astral.sh/uv/))
+- Redis server
+- Make (for Makefile commands)
 
 ### Setup
 
@@ -42,6 +46,8 @@ tail -f logs/app.log
 ```
 
 ## Architecture Overview
+
+Here's how requests flow through the system, from initial submission through job processing and result delivery:
 
 ### Complete Request Flow
 
@@ -73,7 +79,8 @@ Worker processes and returns result
 
 | Layer          | Purpose                       | Uses            | Called By              |
 | -------------- | ----------------------------- | --------------- | ---------------------- |
-| **Route**      | HTTP input/output             | DTOs            | Client                 |
+| **Middleware** | Request/response processing   | Lib             | FastAPI                |
+| **Route**      | HTTP input/output             | DTOs            | Client → Middleware    |
 | **Controller** | Orchestration + error mapping | Services, DTOs  | Route                  |
 | **Service**    | Reusable business logic       | Configs, Models | Controller, Worker     |
 | **Repository** | Database access               | Models          | Service                |
@@ -83,12 +90,22 @@ Worker processes and returns result
 | **Config**     | Settings + singletons         | -               | All layers             |
 | **Lib**        | Utilities (logging, etc.)     | -               | All layers             |
 
+The following diagram shows how your data flows through each layer:
+
 ### Data Flow Diagram
 
 ```
 ┌─────────────────┐
 │  HTTP Request   │
 └────────┬─────── ┘
+         ↓
+┌─────────────────────────────────────────┐
+│  Middleware (Request Processing)        │
+│  - Generates/extracts request ID        │
+│  - Sets up request context              │
+│  - Tracks start time                    │
+│  - Logs: "Wide event with request ID"   │
+└────────┬────────────────────────────────┘
          ↓
 ┌─────────────────────────────────────────┐
 │  API Route  (FastAPI)                   │
@@ -131,6 +148,14 @@ Worker processes and returns result
 ## Module Guide
 
 ### Core Modules
+
+**[`app/middleware/`](./app/middleware/README.md)** - Request/response processing
+
+- HTTP request interception
+- Request ID generation and tracking
+- Request context setup
+- Wide event logging with full context
+- Distributed tracing support
 
 **[`app/api/`](./app/api/README.md)** - HTTP API routes
 
@@ -264,6 +289,11 @@ ENABLE_FILE_LOGGING=false  # Console-only by default (development friendly)
 │   ├── __init__.py
 │   ├── main.py                         # FastAPI app
 │   │
+│   ├── middleware/                     # Cross-cutting concerns
+│   │   ├── __init__.py
+│   │   ├── logging_middleware.py       # Request logging & tracing
+│   │   └── README.md
+│   │
 │   ├── api/                            # HTTP routes
 │   │   ├── __init__.py
 │   │   ├── jobs.py                     # /jobs endpoints
@@ -305,9 +335,18 @@ ENABLE_FILE_LOGGING=false  # Console-only by default (development friendly)
 │   │   ├── database_configuration.py
 │   │   └── README.md
 │   │
-│   └── lib/                            # Utilities
+│   ├── exceptions/                     # Custom exceptions
+│   │   ├── __init__.py
+│   │   ├── base.py
+│   │   └── README.md
+│   │
+│   └── lib/                            # Utilities & shared code
 │       ├── __init__.py
-│       ├── logging.py
+│       ├── logging/                    # Logging package
+│       │   ├── __init__.py
+│       │   ├── logging.py              # Logging setup & formatting
+│       │   ├── logging_context.py      # Context tracking
+│       │   └── README.md
 │       ├── response_formatter.py
 │       ├── db.py
 │       └── README.md

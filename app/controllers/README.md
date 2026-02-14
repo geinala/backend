@@ -2,9 +2,7 @@
 
 Orchestration layer that bridges API routes and business services.
 
-## Purpose
-
-This module handles request orchestration and validation between HTTP layer and business logic:
+This module handles request orchestration and validation between your HTTP layer and business logic:
 
 - **Orchestration** - Coordinate multiple services for complex workflows
 - **Validation** - Validate and transform request data
@@ -12,6 +10,8 @@ This module handles request orchestration and validation between HTTP layer and 
 - **Logging** - Track request flow through controllers
 
 ## Architecture Flow
+
+Follow this architecture when creating controllers:
 
 ```
 FastAPI Route (HTTP)
@@ -27,27 +27,13 @@ Redis Queue
 
 ## When to Use Controllers
 
-Use controllers when:
+Use controllers when you have:
 
-✅ **Complex multi-step workflows**
+- **Complex multi-step workflows** with multiple services involved that need orchestration and error handling across services
+- **Business validation** including domain-specific validation, configuration processing, and data transformation
+- **Shared logic across routes** used by multiple endpoints, CLI commands, or health checks
 
-- Multiple services involved
-- Orchestration needed
-- Error handling across services
-
-✅ **Business validation**
-
-- Domain-specific validation
-- Configuration processing
-- Data transformation
-
-✅ **Shared logic across routes**
-
-- Used by multiple endpoints
-- CLI commands
-- Health checks
-
-❌ **Simple jobs** - Enqueue directly from routes:
+Don't use controllers for simple jobs. Instead, enqueue directly from routes:
 
 ```python
 # Good for simple cases
@@ -63,12 +49,14 @@ async def enqueue_hello_world():
 
 ## Complete Example with Logging
 
+Follow this example to implement controllers with proper logging:
+
 ### Step 1: Create Service
 
-In `app/services/simulation_service.py`:
+Create your business logic in `app/services/simulation_service.py`:
 
 ```python
-from app.lib.logging import get_logger
+from app.lib import get_logger
 from app.configs import get_queue
 
 logger = get_logger(__name__)
@@ -114,7 +102,7 @@ class SimulationService:
 In `app/controllers/simulation_controller.py`:
 
 ```python
-from app.lib.logging import get_logger
+from app.lib import get_logger
 from app.services.simulation_service import SimulationService
 from app.api.exceptions import ValidationError, JobEnqueueError
 from app.dtos import SimulationRequest
@@ -179,7 +167,7 @@ In `app/api/simulations.py`:
 
 ```python
 from fastapi import APIRouter, HTTPException
-from app.lib.logging import get_logger
+from app.lib import get_logger
 from app.controllers.simulation_controller import SimulationController
 from app.dtos import SimulationRequest, SimulationResponse
 from app.api.exceptions import APIException

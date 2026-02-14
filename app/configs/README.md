@@ -1,8 +1,6 @@
 # Configs Module
 
-Configuration management and Redis connection setup for the worker service.
-
-## Purpose
+Configuration management and Redis connection setup for your worker service.
 
 This module handles all application configuration including:
 
@@ -12,7 +10,9 @@ This module handles all application configuration including:
 
 ## Files
 
-### `environment_configuration.py`
+This module is organized as follows:
+
+### environment_configuration.py
 
 Pydantic-based settings for environment variables.
 
@@ -32,7 +32,7 @@ print(settings.ENVIRONMENT)      # development
 - API: `API_HOST`, `API_PORT`, `API_TITLE`, `API_VERSION`
 - Environment: `ENVIRONMENT`, `DEBUG`
 
-### `redis_configuration.py`
+### redis_configuration.py
 
 Singleton Redis client and RQ Queue management with thread-safe initialization.
 
@@ -55,13 +55,13 @@ config.close()  # Graceful shutdown
 
 **Features:**
 
-- ✅ **Thread-safe singleton** - Only one instance across the app
-- ✅ **Lazy initialization** - Connection created on first access
-- ✅ **Connection pooling** - Socket keepalive and health checks
-- ✅ **Custom queues** - Support multiple queue names
-- ✅ **Graceful shutdown** - `close()` method for cleanup
+- Thread-safe singleton: Only one instance across the app
+- Lazy initialization: Connection created on first access
+- Connection pooling: Socket keepalive and health checks
+- Custom queues: Support multiple queue names
+- Graceful shutdown: `close()` method for cleanup
 
-### `database_configuration.py`
+### database_configuration.py
 
 Singleton database connection management using thread-safe initialization pattern.
 
@@ -75,10 +75,10 @@ print(db_config.database_url)  # postgresql://user:pass@localhost:5432/db
 
 **Features:**
 
-- ✅ **Thread-safe singleton** - Only one instance across the app using `Lock`
-- ✅ **Lazy initialization** - Database connection setup on first access
-- ✅ **Reusable pattern** - Template for other singleton configurations
-- ✅ **Double-checked locking** - Efficient thread-safe initialization
+- Thread-safe singleton: Only one instance across the app using `Lock`
+- Lazy initialization: Database connection setup on first access
+- Reusable pattern: Template for other singleton configurations
+- Double-checked locking: Efficient thread-safe initialization
 
 **How it works:**
 
@@ -126,6 +126,7 @@ DB_NAME=simulation_db
 Queue and worker configuration for routing jobs to specialized worker pools.
 
 Supports multiple queue types with different processing characteristics:
+
 - **Heavy Queue**: CPU-intensive, long-running tasks (fewer workers, longer timeout)
 - **Light Queue**: Quick, low-resource tasks (more workers, shorter timeout)
 - **Default Queue**: Standard priority tasks
@@ -209,7 +210,7 @@ def my_job():
     # Database
     db_config = DatabaseConfiguration()
     db_url = db_config.database_url
-    
+
     # Use in job...
     result = redis.get('some_key')
     return result
@@ -228,7 +229,7 @@ router = APIRouter()
 def health_check():
     redis = get_redis_client()
     db_config = DatabaseConfiguration()
-    
+
     return {
         "redis_connected": redis.ping(),
         "database_url": db_config.database_url
@@ -245,14 +246,14 @@ class MyService:
     def __init__(self):
         self.settings = get_environment_configuration()
         self.db_config = DatabaseConfiguration()
-    
+
     def process(self):
         # Use settings
         environment = self.settings.ENVIRONMENT
-        
+
         # Use database config
         db_url = self.db_config.database_url
-        
+
         # ... business logic ...
 ```
 
@@ -389,7 +390,7 @@ class SimulationService:
     def enqueue_simulation(name: str, iterations: int):
         """Route to appropriate queue based on job size."""
         logger.info(f"Service: Enqueueing {name} ({iterations} iterations)")
-        
+
         # Heavy processing for large jobs
         if iterations > 5000:
             logger.info("Service: Routing to HEAVY queue")
@@ -408,11 +409,10 @@ class SimulationService:
                 name=name,
                 iterations=iterations
             )
-        
+
         logger.info(f"Service: Job {job.id} enqueued")
         return job.id
 ```
-
 
 ```python
 # ✅ Type-safe
