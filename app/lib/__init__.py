@@ -9,6 +9,7 @@ from app.lib.logging import (
 )
 from app.lib.response_formatter import ResponseFormatter
 from app.lib.db import get_db
+from app.lib.clerk import get_clerk_sdk
 
 __all__ = [
     "get_logger",
@@ -18,4 +19,5 @@ __all__ = [
     "WideEventTimer",
     "ResponseFormatter",
     "get_db",
+    "get_clerk_sdk",
 ]

@@ -24,9 +24,6 @@ class RedisConfiguration:
     def _initialize(self) -> None:
         settings = get_environment_configuration()
         
-        """ 
-            Ignore type because Redis.from_url is a dynamic method and mypy cannot infer its type correctly.
-        """
         self._redis_client = Redis.from_url( # type: ignore [reportUnknownMemberType]
             settings.redis_url,
             decode_responses=True,
@@ -38,9 +35,6 @@ class RedisConfiguration:
         try:
             assert self._redis_client is not None
             
-            """ 
-                Ignore type because mypy cannot infer the type of ping() method correctly.
-            """
             self._redis_client.ping() # type: ignore [reportUnknownMemberType]
         except Exception as e:
             raise ConnectionError(f"Failed to connect to Redis: {e}") from e
@@ -73,9 +67,6 @@ class RedisConfiguration:
     def is_connected(self) -> bool:
         try:
             
-            """ 
-                Ignore type because mypy cannot infer the type of ping() method correctly.
-            """
             result: bool | object = self.redis.ping() # type: ignore [reportUnknownMemberType]
             return isinstance(result, bool) and result
         except Exception:

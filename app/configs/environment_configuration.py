@@ -66,6 +66,12 @@ class EnvironmentConfiguration(BaseSettings):
     LOG_MAX_BYTES: int = int(os.getenv("LOG_MAX_BYTES", 10485760))  # 10 MB
     ENABLE_FILE_LOGGING: bool = os.getenv("ENABLE_FILE_LOGGING", "false").lower() == "true"  # Only file log in production
 
+    # Clerk Configuration
+    CLERK_SECRET_KEY: str = os.getenv("CLERK_SECRET_KEY", "")
+    
+    # Frontend Configuration
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
     class Config:
         env_file = ".env"
         case_sensitive = True

@@ -14,6 +14,7 @@ from app.configs.worker_configuration import (
     get_queue_for_job,
     enqueue_job,
 )
+from app.configs.openapi_configuration import open_api_configuration_factory
 
 __all__ = [
     "EnvironmentConfiguration",
@@ -27,4 +28,5 @@ __all__ = [
     "get_worker_config",
     "get_queue_for_job",
     "enqueue_job",
+    "open_api_configuration_factory",
 ]
