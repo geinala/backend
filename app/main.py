@@ -1,11 +1,10 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from app.configs import get_environment_configuration
 from app.api import get_routers
-from app.configs import open_api_configuration_factory
+from app.configs import open_api_configuration_factory, cors_configuration_factory
 from app.exceptions import global_exception_handler_factory
 from app.lib import get_logger
-from app.middleware.logging_middleware import WideEventMiddleware
+from app.middleware import WideEventMiddleware
 
 logger = get_logger(__name__)
 
@@ -38,15 +37,7 @@ def create_app() -> FastAPI:
     app.add_middleware(WideEventMiddleware)
     
     # Set up CORS middleware with configuration
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
-        allow_methods=settings.cors_methods,
-        allow_headers=settings.cors_headers,
-        expose_headers=settings.cors_expose_headers,
-        max_age=settings.CORS_MAX_AGE,
-    )
+    cors_configuration_factory(app)
     
     # Include all routers
     for router in get_routers():

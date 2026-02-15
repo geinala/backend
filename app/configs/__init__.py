@@ -15,6 +15,7 @@ from app.configs.worker_configuration import (
     enqueue_job,
 )
 from app.configs.openapi_configuration import open_api_configuration_factory
+from app.configs.cors_configuration import cors_configuration_factory
 
 __all__ = [
     "EnvironmentConfiguration",
@@ -29,4 +30,5 @@ __all__ = [
     "get_queue_for_job",
     "enqueue_job",
     "open_api_configuration_factory",
+    "cors_configuration_factory",
 ]
