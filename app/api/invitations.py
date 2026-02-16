@@ -2,10 +2,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.lib import get_logger
-from app.lib import get_db
-from app.dtos import SendInvitationRequestDTO
-from app.controllers import InvitationsController
+from app.lib.logging.logging import get_logger
+from app.lib.db import get_db
+from app.dtos.requests.invitation_request_dto import SendInvitationRequestDTO
+from app.controllers.invitation_controller import InvitationsController
 
 logger = get_logger(__name__)
 

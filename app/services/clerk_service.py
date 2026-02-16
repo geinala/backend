@@ -1,9 +1,9 @@
 import time as time_module
 from clerk_backend_api import Clerk, models
-from app.dtos import ClerkUserDTO
-from app.configs import get_environment_configuration
+from app.dtos.clerk_user_dto import ClerkUserDTO
+from app.configs.environment_configuration import get_environment_configuration
 
-from app.lib import get_logger
+from app.lib.logging.logging import get_logger
 
 logger = get_logger(__name__)
 

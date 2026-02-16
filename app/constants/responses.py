@@ -1,5 +1,5 @@
-from app.dtos.responses import BaseApiResponseDTO
-from app.exceptions import ValidationErrorResponseDTO
+from app.dtos.responses.api_response_dto import BaseApiResponseDTO
+from app.exceptions.validation import ValidationErrorResponseDTO
 
 VALIDATION_ERROR_RESPONSE: dict[str, object] = {
     "description": "Validation Error",

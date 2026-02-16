@@ -1,5 +1,3 @@
-"""Redis configuration with singleton pattern for client and queue instances."""
-
 from typing import Optional
 from threading import Lock
 from redis import Redis
@@ -10,7 +8,11 @@ from app.configs.environment_configuration import get_environment_configuration
 class RedisConfiguration:
     _instance: Optional["RedisConfiguration"] = None
     _lock: Lock = Lock()
+    
     _redis_client: Optional[Redis] = None
+    
+    _redis_client_raw: Optional[Redis] = None
+    
     _queue_client: Optional[Queue] = None
 
     def __new__(cls) -> "RedisConfiguration":
@@ -31,11 +33,21 @@ class RedisConfiguration:
             socket_keepalive=True,
             health_check_interval=30,
         ) 
+
+        self._redis_client_raw = Redis.from_url( # type: ignore [reportUnknownMemberType]
+            settings.redis_url,
+            decode_responses=False,
+            socket_connect_timeout=5,
+            socket_keepalive=True,
+            health_check_interval=30,
+        )
         
         try:
             assert self._redis_client is not None
+            assert self._redis_client_raw is not None
             
             self._redis_client.ping() # type: ignore [reportUnknownMemberType]
+            self._redis_client_raw.ping() # type: ignore [reportUnknownMemberType]
         except Exception as e:
             raise ConnectionError(f"Failed to connect to Redis: {e}") from e
 
@@ -47,12 +59,19 @@ class RedisConfiguration:
         return self._redis_client
 
     @property
+    def redis_raw(self) -> Redis:
+        if self._redis_client_raw is None:
+            self._initialize()
+        assert self._redis_client_raw is not None, "Redis raw client should be initialized"
+        return self._redis_client_raw
+
+    @property
     def queue(self) -> Queue:
         if self._queue_client is None:
             settings = get_environment_configuration()
             self._queue_client = Queue(
                 name=settings.RQ_QUEUE,
-                connection=self.redis,
+                connection=self.redis_raw,
                 job_timeout=settings.RQ_JOB_TIMEOUT,
                 result_ttl=settings.RQ_RESULT_TTL
             )
@@ -62,11 +81,15 @@ class RedisConfiguration:
         if self._redis_client is not None:
             self._redis_client.close()
             self._redis_client = None
-            self._queue_client = None
+        
+        if self._redis_client_raw is not None:
+            self._redis_client_raw.close()
+            self._redis_client_raw = None
+            
+        self._queue_client = None
 
     def is_connected(self) -> bool:
         try:
-            
             result: bool | object = self.redis.ping() # type: ignore [reportUnknownMemberType]
             return isinstance(result, bool) and result
         except Exception:
@@ -81,14 +104,19 @@ def get_redis_client() -> Redis:
     return get_redis_config().redis
 
 
+def get_redis_raw_client() -> Redis:
+    return get_redis_config().redis_raw
+
+
 def get_queue(queue_name: Optional[str] = None) -> Queue:
     if queue_name is None:
         return get_redis_config().queue
 
     settings = get_environment_configuration()
+    
     return Queue(
         name=queue_name,
-        connection=get_redis_client(),
+        connection=get_redis_config().redis_raw,
         job_timeout=settings.RQ_JOB_TIMEOUT,
         result_ttl=settings.RQ_RESULT_TTL
     )

@@ -1,7 +1,7 @@
 from clerk_backend_api import Clerk
-from app.lib import get_logger
+from app.lib.logging.logging import get_logger
 
-from app.configs import get_environment_configuration
+from app.configs.environment_configuration import get_environment_configuration
 
 logger = get_logger(__name__)
 

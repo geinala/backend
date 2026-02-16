@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.configs import get_environment_configuration
+from app.configs.environment_configuration import get_environment_configuration
 from fastapi.middleware.cors import CORSMiddleware
 
 def cors_configuration_factory(app: FastAPI):

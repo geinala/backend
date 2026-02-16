@@ -1,38 +1,32 @@
-# Multi-stage build for optimized production image
-FROM python:3.11-slim as builder
-
-# Install uv
-RUN pip install uv
-
-WORKDIR /app
-COPY pyproject.toml uv.lock* ./
-
-# Build virtual environment
-RUN uv venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-RUN uv sync --no-dev
-
-
-# Production image
-FROM python:3.11-slim
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/opt/venv/bin:$PATH"
+FROM ghcr.io/astral-sh/uv:python3.10-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Copy virtual environment from builder
-COPY --from=builder /opt/venv /opt/venv
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
 
-# Copy application code
-COPY app/ app/
-COPY .env.example .env
+COPY pyproject.toml uv.lock ./
 
-# Health check (can connect to Redis)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "from app.core import get_redis_connection; get_redis_connection().ping()" || exit 1
+RUN uv sync --frozen --no-dev --no-install-project
 
-# Default: run worker
-CMD ["rq", "worker"]
+FROM python:3.10-slim-bookworm
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tzdata \
+    && ln -fs /usr/share/zoneinfo/Asia/Jakarta /etc/localtime \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/.venv /app/.venv
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+COPY . .
+
+RUN useradd -m appuser
+USER appuser
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

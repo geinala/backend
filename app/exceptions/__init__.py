@@ -1,9 +1,6 @@
-"""Exception handlers and custom exceptions for API layer."""
+from .validation import register_validation_exception_handlers
 
-from .factory import global_exception_handler_factory
-from .validation import ValidationErrorResponseDTO
+from fastapi import FastAPI
 
-__all__ = [
-    "global_exception_handler_factory",
-    "ValidationErrorResponseDTO",
-]
+def global_exception_handler_factory(app: FastAPI):
+    register_validation_exception_handlers(app)

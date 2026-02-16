@@ -2,8 +2,8 @@
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
-from app.lib import get_logger
-from app.models import Waitlist, WaitlistStatusEnum
+from app.lib.logging.logging import get_logger
+from app.models.waitlist import Waitlist, WaitlistStatusEnum
 
 logger = get_logger(__name__)
 

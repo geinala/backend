@@ -4,7 +4,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.dtos.responses.api_response_dto import ApiErrorResponseWithDetailsDTO
-from app.lib import ResponseFormatter, get_logger
+from app.lib.response_formatter import ResponseFormatter
+from app.lib.logging.logging import get_logger
 
 logger = get_logger(__name__)
 

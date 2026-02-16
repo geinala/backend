@@ -1,10 +1,11 @@
 from fastapi import FastAPI
-from app.configs import get_environment_configuration
+from app.configs.environment_configuration import get_environment_configuration
 from app.api import get_routers
-from app.configs import open_api_configuration_factory, cors_configuration_factory
+from app.configs.openapi_configuration import open_api_configuration_factory
+from app.configs.cors_configuration import cors_configuration_factory
 from app.exceptions import global_exception_handler_factory
-from app.lib import get_logger
-from app.middleware import WideEventMiddleware
+from app.lib.logging.logging import get_logger
+from app.middleware.logging_middleware import WideEventMiddleware
 
 logger = get_logger(__name__)
 
@@ -41,7 +42,7 @@ def create_app() -> FastAPI:
     
     # Include all routers
     for router in get_routers():
-        app.include_router(router)
+        app.include_router(router, prefix="/api")
         logger.info({
             "event_type": "router_registered",
             "tags": router.tags,

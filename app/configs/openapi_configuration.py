@@ -3,13 +3,13 @@ from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
 
-from app.constants import (
+from app.constants.responses import (
     VALIDATION_ERROR_RESPONSE,
     BAD_REQUEST_RESPONSE,
     INTERNAL_SERVER_ERROR_RESPONSE,
 )
-from app.configs import get_environment_configuration
-from app.exceptions import ValidationErrorResponseDTO 
+from app.configs.environment_configuration import get_environment_configuration
+from app.exceptions.validation import ValidationErrorResponseDTO 
 
 def open_api_configuration_factory(app: FastAPI):
     settings = get_environment_configuration()

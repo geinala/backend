@@ -1,16 +1,7 @@
-"""Worker and queue configuration for different job types.
-
-Supports multiple queue types with different processing characteristics:
-- Heavy: CPU-intensive, long-running tasks (e.g., simulations, data processing)
-- Light: Quick tasks, low resource usage (e.g., validation, notifications)
-- Default: Standard priority tasks
-"""
-
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 from rq import Queue
-from rq.job import Job
-from app.configs.redis_configuration import get_redis_client
+from app.configs.redis_configuration import get_redis_raw_client
 from app.configs.environment_configuration import get_environment_configuration
 
 
@@ -23,8 +14,6 @@ class JobType(Enum):
 
 
 class WorkerConfiguration:
-    """Configuration for worker instances managing different job queues."""
-    
     def __init__(self):
         self.settings = get_environment_configuration()
         self._queues: dict[str, Queue] = {}
@@ -38,7 +27,7 @@ class WorkerConfiguration:
         return queue
     
     def _create_queue(self, job_type: JobType) -> Queue:
-        redis_client = get_redis_client()
+        redis_client = get_redis_raw_client()
         
         if job_type == JobType.HEAVY:
             return Queue(
@@ -104,15 +93,6 @@ def get_worker_config() -> WorkerConfiguration:
 
 
 def get_queue_for_job(job_type: JobType) -> Queue:
-    return get_worker_config().get_queue(job_type)
-
-
-def enqueue_job(
-    function_path: str,
-    job_type: JobType = JobType.DEFAULT,
-    *args: Any,
-    **kwargs: Any
-) -> Job:
-    queue = get_queue_for_job(job_type)
-    job = queue.enqueue(function_path, *args, **kwargs) # type: ignore [reportUnknownMemberType]
-    return job
+    config = get_worker_config()
+    
+    return config.get_queue(job_type)

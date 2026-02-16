@@ -13,7 +13,7 @@ from typing import Callable, Awaitable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.lib import get_logger
+from app.lib.logging.logging import get_logger
 from app.lib.logging.logging_context import (
     generate_request_id,
     set_request_id,

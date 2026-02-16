@@ -1,6 +1,6 @@
 from threading import Lock
 from typing import Optional
-from app.configs.environment_configuration import get_environment_configuration
+from .environment_configuration import get_environment_configuration
 
 class DatabaseConfiguration:
     _instance: Optional["DatabaseConfiguration"] = None

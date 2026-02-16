@@ -1,16 +1,15 @@
-"""Controller for invitation management."""
 
 import time
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.lib import get_logger
-from app.lib import ResponseFormatter
-from app.repositories import WaitlistRepository
-from app.services import InvitationService
-from app.services import ClerkService
-from app.lib import get_clerk_sdk
-from app.dtos import SendInvitationRequestDTO
+from app.lib.logging.logging import get_logger
+from app.lib.response_formatter import ResponseFormatter
+from app.repositories.waitlist_repository import WaitlistRepository
+from app.services.invitation_service import InvitationService
+from app.services.clerk_service import ClerkService
+from app.lib.clerk import get_clerk_sdk
+from app.dtos.requests.invitation_request_dto import SendInvitationRequestDTO
 
 logger = get_logger(__name__)
 

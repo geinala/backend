@@ -1,6 +1,6 @@
 from fastapi.responses import JSONResponse
 
-from app.dtos import (
+from app.dtos.responses.api_response_dto import (
     BaseApiResponseDTO,
     ApiResponseWithDataDTO,
     ApiErrorResponseWithDetailsDTO,

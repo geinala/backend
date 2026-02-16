@@ -16,3 +16,6 @@ wheels/
 
 # Logs
 logs/
+
+# Docker
+Dockerfile.*

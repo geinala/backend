@@ -1,13 +1,10 @@
-"""Worker for processing invitation jobs."""
-
 import time
 from rq.job import get_current_job
 
 from app.lib import get_logger, get_db
 from app.lib.clerk import get_clerk_sdk
-from app.repositories.waitlist_repository import WaitlistRepository
-from app.services.invitation_service import InvitationService
-from app.services.clerk_service import ClerkService
+from app.repositories import WaitlistRepository
+from app.services import InvitationService, ClerkService
 
 logger = get_logger(__name__)
 

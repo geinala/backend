@@ -1,13 +1,15 @@
 import time
 
 from fastapi.exceptions import ValidationException
-from app.lib import get_logger
-from app.configs import enqueue_job, JobType
-from app.repositories import WaitlistRepository
+from app.constants.job_prefixes import JOB_PREFIXES_ENUM
+from app.lib.logging.logging import get_logger
+from app.configs.worker_configuration import JobType
+from app.services.job_service import enqueue_job, get_job_status
+from app.repositories.waitlist_repository import WaitlistRepository
 from app.services.clerk_service import ClerkService
-from app.dtos import ClerkUserDTO
+from app.dtos.clerk_user_dto import ClerkUserDTO
 from rq.job import Job
-from app.dtos import JobStatusEnum, InvitationResponseDTO
+from app.dtos.responses.invitation_response_dto import InvitationResponseDTO
 
 
 logger = get_logger(__name__)
@@ -102,13 +104,16 @@ class InvitationService:
                 job = enqueue_job(
                     'app.workers.send_invitation_worker.process_invitations',
                     job_type=JobType.LIGHT,
+                    job_prefix=JOB_PREFIXES_ENUM.INVITATION,
                     waitlist_id=waitlist_id
                 )
                 jobs.append(job.id)
                 
+                job_status = get_job_status(job_id=job.id, job_type=JobType.LIGHT)
+                
                 response = InvitationResponseDTO(
                     job_id=str(job.id),
-                    status=JobStatusEnum.QUEUED,
+                    status=job_status,
                     message=f"Invitation job {job.id} has been enqueued",
                     waitlist_id=waitlist_id
                 )
