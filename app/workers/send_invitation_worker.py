@@ -1,10 +1,11 @@
 import time
 from rq.job import get_current_job
 
-from app.lib import get_logger, get_db
+from app.lib.logging.logging import get_logger
+from app.lib.db import get_db
 from app.lib.clerk import get_clerk_sdk
-from app.repositories import WaitlistRepository
-from app.services import InvitationService, ClerkService
+from app.repositories.waitlist_repository import WaitlistRepository
+from app.services.invitation_service import InvitationService, ClerkService
 
 logger = get_logger(__name__)
 

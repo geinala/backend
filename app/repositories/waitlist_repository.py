@@ -11,17 +11,23 @@ class WaitlistRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
     
-    async def validate_waitlist_ids(self, waitlist_ids: list[int]) -> bool:
-        existing_ids = self.db.query(Waitlist.id).filter(Waitlist.id.in_(waitlist_ids)).all()
-        existing_ids_set = set(id for (id,) in existing_ids)
-        invalid_ids = [id for id in waitlist_ids if id not in existing_ids_set]
+    async def get_waitlist_entries_by_ids(self, waitlist_ids: list[int], status: WaitlistStatusEnum | None = None) -> list[Waitlist]:
+        query = self.db.query(Waitlist).filter(Waitlist.id.in_(waitlist_ids))
         
-        if invalid_ids:
-            logger.warning(f"Invalid waitlist IDs: {invalid_ids}")
-            return False
+        if status:
+            query = query.filter(Waitlist.status == status)
         
-        return True
+        return query.all()
+    
+    async def get_valid_waitlist_ids(self, waitlist_ids: list[int], status: WaitlistStatusEnum | None = None) -> list[int]:
+        """Get valid waitlist IDs that match the criteria."""
+        query = self.db.query(Waitlist.id).filter(Waitlist.id.in_(waitlist_ids))
         
+        if status:
+            query = query.filter(Waitlist.status == status)
+        
+        results = query.all()
+        return [id_tuple[0] for id_tuple in results]
     
     async def get_waitlist_entries_by_id(self, waitlist_id: int) -> Waitlist | None:
         result = self.db.query(Waitlist).filter(Waitlist.id == waitlist_id).first()

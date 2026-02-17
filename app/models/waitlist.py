@@ -8,6 +8,7 @@ Base = declarative_base()
 
 class WaitlistStatusEnum(enum.Enum):
     pending = 'pending'
+    sending = 'sending'
     confirmed = 'confirmed'
     rejected = 'rejected'
     invited = 'invited'

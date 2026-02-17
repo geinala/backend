@@ -4,6 +4,7 @@ from fastapi.exceptions import ValidationException
 from app.constants.job_prefixes import JOB_PREFIXES_ENUM
 from app.lib.logging.logging import get_logger
 from app.configs.worker_configuration import JobType
+from app.models.waitlist import WaitlistStatusEnum
 from app.services.job_service import enqueue_job, get_job_status
 from app.repositories.waitlist_repository import WaitlistRepository
 from app.services.clerk_service import ClerkService
@@ -18,6 +19,19 @@ class InvitationService:
     def __init__(self, waitlist_repository: WaitlistRepository, clerk_service: ClerkService):
         self.waitlist_repository = waitlist_repository
         self.clerk_service = clerk_service
+    
+    async def _validate_waitlist_ids_by_status(self, waitlist_ids: list[int], status: WaitlistStatusEnum) -> bool:
+        valid_ids: list[int] = await self.waitlist_repository.get_valid_waitlist_ids(waitlist_ids, status=status)
+        valid_ids_set: set[int] = set(valid_ids)
+        requested_ids_set: set[int] = set(waitlist_ids)
+        
+        invalid_ids: set[int] = requested_ids_set - valid_ids_set
+        
+        if invalid_ids:
+            logger.warning(f"Invalid waitlist IDs or status mismatch: {list(invalid_ids)}")
+            return False
+        
+        return True
     
     async def create_clerk_user_and_send_invitation(self, waitlist_id: int):
         start_time = time.time()
@@ -54,7 +68,7 @@ class InvitationService:
                 
                 await self.clerk_service.invite_user(clerk_user.email_addresses[0].email_address)
                 
-                await self.waitlist_repository.update_waitlist_entry_status(waitlist_id, waitlist_entry.status.invited)
+                await self.waitlist_repository.update_waitlist_entry_status(waitlist_id, WaitlistStatusEnum.invited)
                 
                 wide_event["status"] = "success"
                 
@@ -88,7 +102,7 @@ class InvitationService:
         }
         
         try:
-            is_valid_ids = await self.waitlist_repository.validate_waitlist_ids(waitlist_ids)
+            is_valid_ids = await self._validate_waitlist_ids_by_status(waitlist_ids, status=WaitlistStatusEnum.sending)
             
             if not is_valid_ids:
                 wide_event["status"] = "failed"
@@ -114,7 +128,6 @@ class InvitationService:
                 response = InvitationResponseDTO(
                     job_id=str(job.id),
                     status=job_status,
-                    message=f"Invitation job {job.id} has been enqueued",
                     waitlist_id=waitlist_id
                 )
                 

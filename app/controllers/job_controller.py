@@ -1,4 +1,4 @@
-from app.dtos.responses.job_response_dto import AppJobStatus
+from app.dtos.responses.job_response_dto import  JobResponseDTO
 from app.lib.logging.logging import get_logger
 from app.lib.logging.wide_event_logger import wide_event
 from app.lib.response_formatter import ResponseFormatter
@@ -12,7 +12,7 @@ class JobController:
     @staticmethod
     async def get_jobs_status(job_ids: list[str]) -> JSONResponse:
         with wide_event("controller_get_jobs_status", job_count=len(job_ids) if job_ids else 0) as event:
-            responses: dict[str, AppJobStatus] = {}
+            responses: list[JobResponseDTO] = []
 
             for job_id in job_ids:
                 job_type = get_job_type_from_job_id(job_id)
@@ -29,7 +29,7 @@ class JobController:
                     )
             
                 job_status = get_job_status(job_id=job_id, job_type=job_type)
-                responses[job_id] = job_status
+                responses.append(JobResponseDTO(job_id=job_id, status=job_status))
             
             event["retrieved_count"] = len(responses)
             

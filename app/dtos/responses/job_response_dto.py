@@ -13,4 +13,3 @@ class AppJobStatus(str, Enum):
 class JobResponseDTO(BaseModel):
     job_id: str
     status: AppJobStatus
-    message: str
