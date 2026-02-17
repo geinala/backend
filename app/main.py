@@ -12,7 +12,6 @@ logger = get_logger(__name__)
 def create_app() -> FastAPI:
     settings = get_environment_configuration()
     
-    # Log app initialization
     logger.info({
         "event_type": "app_startup",
         "title": settings.API_TITLE,
@@ -20,7 +19,6 @@ def create_app() -> FastAPI:
         "environment": settings.ENVIRONMENT,
     })
     
-    # Configure docs URLs based on settings
     docs_url = "/docs" if settings.ENABLE_DOCS else None
     redoc_url = "/redoc" if settings.ENABLE_REDOC else None
     openapi_url = "/openapi.json" if settings.ENABLE_OPENAPI else None
@@ -31,16 +29,12 @@ def create_app() -> FastAPI:
         openapi_url=openapi_url,
     )
     
-    # Register global exception handlers
     global_exception_handler_factory(app)
     
-    # Add middleware for wide events (must be first to capture all requests)
     app.add_middleware(WideEventMiddleware)
     
-    # Set up CORS middleware with configuration
     cors_configuration_factory(app)
     
-    # Include all routers
     for router in get_routers():
         app.include_router(router, prefix="/api")
         logger.info({
@@ -53,7 +47,6 @@ def create_app() -> FastAPI:
 
 app = create_app()
 
-# Set up OpenAPI configuration
 open_api_configuration_factory(app)
 
 if __name__ == "__main__":

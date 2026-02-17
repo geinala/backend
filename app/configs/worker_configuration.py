@@ -6,8 +6,6 @@ from app.configs.environment_configuration import get_environment_configuration
 
 
 class JobType(Enum):
-    """Job type enumeration for routing to appropriate queue."""
-    
     HEAVY = "heavy"      # CPU-intensive, long-running jobs
     LIGHT = "light"      # Quick, low-resource jobs
     DEFAULT = "default"  # Standard priority jobs

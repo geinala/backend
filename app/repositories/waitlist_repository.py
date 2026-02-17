@@ -1,5 +1,5 @@
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.lib.logging.logging import get_logger
@@ -20,7 +20,6 @@ class WaitlistRepository:
         return query.all()
     
     async def get_valid_waitlist_ids(self, waitlist_ids: list[int], status: WaitlistStatusEnum | None = None) -> list[int]:
-        """Get valid waitlist IDs that match the criteria."""
         query = self.db.query(Waitlist.id).filter(Waitlist.id.in_(waitlist_ids))
         
         if status:
@@ -41,9 +40,11 @@ class WaitlistRepository:
             logger.warning(f"Waitlist entry with ID {waitlist_id} not found for status update.")
             return None
         
+        expired_at = datetime.now(timezone.utc) + timedelta(days=30)
+        
         waitlist_entry.status = new_status  # type: ignore[assignment]
         waitlist_entry.invited_at = datetime.now(timezone.utc) # type: ignore[assignment]
-        waitlist_entry.expired_at = datetime.now(timezone.utc) # type: ignore[assignment]
+        waitlist_entry.expired_at = expired_at # type: ignore[assignment]
         waitlist_entry.ticket_id = waitlist_entry.generate_ticket_id() # type: ignore[assignment]
         
         self.db.commit()

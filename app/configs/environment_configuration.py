@@ -86,32 +86,22 @@ class EnvironmentConfiguration(BaseSettings):
     
     @property
     def cors_origins(self) -> list[str]:
-        """Parse CORS origins from env string.
-        
-        Supports:
-        - "*" for all origins
-        - "http://localhost:3000" single origin
-        - "http://localhost:3000,http://example.com" comma-separated origins
-        """
         if self.CORS_ALLOW_ORIGINS == "*":
             return ["*"]
         return [origin.strip() for origin in self.CORS_ALLOW_ORIGINS.split(",")]
     
     @property
     def cors_methods(self) -> list[str]:
-        """Parse CORS methods from comma-separated string."""
         return [method.strip() for method in self.CORS_ALLOW_METHODS.split(",")]
     
     @property
     def cors_headers(self) -> list[str] | str:
-        """Parse CORS headers - returns "*" or list of headers."""
         if self.CORS_ALLOW_HEADERS == "*":
             return "*"
         return [header.strip() for header in self.CORS_ALLOW_HEADERS.split(",")]
     
     @property
     def cors_expose_headers(self) -> list[str]:
-        """Parse CORS expose headers from comma-separated string."""
         return [header.strip() for header in self.CORS_EXPOSE_HEADERS.split(",")]
 
 
