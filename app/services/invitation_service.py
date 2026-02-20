@@ -8,7 +8,6 @@ from app.models.waitlist import WaitlistStatusEnum
 from app.services.job_service import enqueue_job, get_job_status
 from app.repositories.waitlist_repository import WaitlistRepository
 from app.services.clerk_service import ClerkService
-from app.dtos.clerk_user_dto import ClerkUserDTO
 from rq.job import Job
 from app.dtos.responses.invitation_response_dto import InvitationResponseDTO
 
@@ -54,19 +53,19 @@ class InvitationService:
             
             wide_event["user_id"] = waitlist_entry.id
             wide_event["first_name"] = waitlist_entry.first_name
+            wide_event["email"] = waitlist_entry.email
             
             try:
-                clerk_user = await self.clerk_service.create_user(ClerkUserDTO(
-                    first_name=str(waitlist_entry.first_name),
-                    last_name=str(waitlist_entry.last_name),
-                    email_address=[str(waitlist_entry.email)],
-                    public_metadata={"is_onboarded": False},
-                    delete_self_enabled=True
-                ))
+                entry = await self.waitlist_repository.get_waitlist_by_email(waitlist_entry.email.__str__())
                 
-                wide_event["clerk_user_id"] = clerk_user.id
+                if not entry:
+                    wide_event["status"] = "skipped"
+                    wide_event["reason"] = "entry_not_found_for_email"
+                    wide_event["duration_ms"] = (time.time() - start_time) * 1000
+                    logger.info(wide_event)
+                    return
                 
-                await self.clerk_service.invite_user(clerk_user.email_addresses[0].email_address)
+                await self.clerk_service.invite_user(email_address=waitlist_entry.email.__str__(), ticket=entry.ticket_id.__str__())
                 
                 await self.waitlist_repository.update_waitlist_entry_status(waitlist_id, WaitlistStatusEnum.invited)
                 

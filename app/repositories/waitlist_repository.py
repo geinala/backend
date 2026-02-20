@@ -10,6 +10,10 @@ logger = get_logger(__name__)
 class WaitlistRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
+        
+    async def get_waitlist_by_email(self, email: str) -> Waitlist | None:
+        result = self.db.query(Waitlist).filter(Waitlist.email == email).first()
+        return result
     
     async def get_waitlist_entries_by_ids(self, waitlist_ids: list[int], status: WaitlistStatusEnum | None = None) -> list[Waitlist]:
         query = self.db.query(Waitlist).filter(Waitlist.id.in_(waitlist_ids))
@@ -45,7 +49,6 @@ class WaitlistRepository:
         waitlist_entry.status = new_status  # type: ignore[assignment]
         waitlist_entry.invited_at = datetime.now(timezone.utc) # type: ignore[assignment]
         waitlist_entry.expired_at = expired_at # type: ignore[assignment]
-        waitlist_entry.ticket_id = waitlist_entry.generate_ticket_id() # type: ignore[assignment]
         
         self.db.commit()
         self.db.refresh(waitlist_entry)

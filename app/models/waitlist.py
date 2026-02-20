@@ -27,8 +27,3 @@ class Waitlist(Base):
     confirmed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
     ticket_id = Column(String, nullable=True, unique=True)
-
-    def generate_ticket_id(self):
-        email_normalized = self.email.strip().lower()
-        hashed = hashlib.sha256(email_normalized.encode()).hexdigest()
-        return hashed[:16]
