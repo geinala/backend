@@ -3,8 +3,8 @@ __pycache__
 *.pyo
 *.pyd
 *.sqlite3
+.env.example
 .env
-.env.*
 .git
 .gitignore
 .mypy_cache

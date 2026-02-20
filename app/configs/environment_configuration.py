@@ -64,6 +64,10 @@ class EnvironmentConfiguration(BaseSettings):
     LOG_MAX_BYTES: int = int(os.getenv("LOG_MAX_BYTES", 10485760))  # 10 MB
     ENABLE_FILE_LOGGING: bool = os.getenv("ENABLE_FILE_LOGGING", "false").lower() == "true"  # Only file log in production
 
+    # API Key Configuration
+    API_KEY: str = os.getenv("API_KEY", "")
+    ENABLE_API_KEY_VALIDATION: bool = os.getenv("ENABLE_API_KEY_VALIDATION", "true").lower() == "true"
+    
     # Clerk Configuration
     CLERK_SECRET_KEY: str = os.getenv("CLERK_SECRET_KEY", "")
     

@@ -6,6 +6,7 @@ from app.configs.cors_configuration import cors_configuration_factory
 from app.exceptions import global_exception_handler_factory
 from app.lib.logging.logging import get_logger
 from app.middleware.logging_middleware import WideEventMiddleware
+from app.middleware.api_key_validation_middleware import APIKeyValidationMiddleware
 
 logger = get_logger(__name__)
 
@@ -31,6 +32,7 @@ def create_app() -> FastAPI:
     
     global_exception_handler_factory(app)
     
+    app.add_middleware(APIKeyValidationMiddleware)
     app.add_middleware(WideEventMiddleware)
     
     cors_configuration_factory(app)
