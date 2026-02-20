@@ -60,7 +60,7 @@ class InvitationService:
                     first_name=str(waitlist_entry.first_name),
                     last_name=str(waitlist_entry.last_name),
                     email_address=[str(waitlist_entry.email)],
-                    public_metadata={"is_onboarded": True},
+                    public_metadata={"is_onboarded": False},
                     delete_self_enabled=True
                 ))
                 
