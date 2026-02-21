@@ -25,6 +25,17 @@ def open_api_configuration_factory(app: FastAPI):
             routes=app.routes,
         )
         
+        openapi_schema.setdefault("components", {})
+        openapi_schema["components"].setdefault("securitySchemes", {})
+
+        openapi_schema["components"]["securitySchemes"]["ApiKeyAuth"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-KEY",
+        }
+
+        openapi_schema["security"] = [{"ApiKeyAuth": []}]
+        
         validation_schema_factory(openapi_schema)
         
         for route in app.routes:

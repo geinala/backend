@@ -1,4 +1,4 @@
-import hashlib
+from pydantic import BaseModel
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer, String, DateTime, Enum
 from datetime import datetime, timezone
@@ -13,6 +13,8 @@ class WaitlistStatusEnum(enum.Enum):
     rejected = 'rejected'
     invited = 'invited'
     expired = 'expired'
+    failed = 'failed'
+    revoked = 'revoked'
 
 class Waitlist(Base):
     __tablename__ = 'waitlist'
@@ -27,3 +29,18 @@ class Waitlist(Base):
     confirmed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
     ticket_id = Column(String, nullable=True, unique=True)
+    clerk_invitation_id = Column(String, nullable=True, unique=True)
+    
+class WaitlistUpdateData(BaseModel):
+    email: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    status: WaitlistStatusEnum | None = None
+    invited_at: datetime | None = None
+    expired_at: datetime | None = None
+    confirmed_at: datetime | None = None
+    ticket_id: str | None = None
+    clerk_invitation_id: str | None = None
+    
+    class Config:
+        from_attributes = True

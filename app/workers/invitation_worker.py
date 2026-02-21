@@ -46,3 +46,40 @@ async def process_invitations(waitlist_id: int) -> dict[str, object]:
         
         logger.error(wide_event)
         raise e
+    
+async def process_revoke_invitations(waitlist_id: int, clerk_invitation_id: str) -> dict[str, object]:
+    job = get_current_job()
+    start_time = time.time()
+    
+    wide_event: dict[str, object] = {
+        "event_type": "worker_process_revoke_invitations",
+        "job_id": job.id if job else None,
+        "clerk_invitation_id": clerk_invitation_id,
+        "waitlist_id": waitlist_id,
+        "status": "processing",
+    }
+    
+    try:
+        db_session = get_db()
+        waitlist_repository = WaitlistRepository(next(db_session))
+        clerk_client = next(get_clerk_sdk())
+        clerk_service = ClerkService(clerk_client)
+        service = InvitationService(waitlist_repository, clerk_service)
+        
+        await service.revoke_clerk_invitation(waitlist_id, clerk_invitation_id)
+        
+        wide_event["status"] = "success"
+        wide_event["duration_ms"] = (time.time() - start_time) * 1000
+        
+        logger.info(wide_event)
+        
+        return {"status": "success", "clerk_invitation_id": clerk_invitation_id}
+        
+    except Exception as e:
+        wide_event["status"] = "failed"
+        wide_event["error"] = str(e)
+        wide_event["error_type"] = type(e).__name__
+        wide_event["duration_ms"] = (time.time() - start_time) * 1000
+        
+        logger.error(wide_event)
+        raise e

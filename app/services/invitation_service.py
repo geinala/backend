@@ -1,15 +1,10 @@
+from datetime import datetime, timedelta, timezone
 import time
 
-from fastapi.exceptions import ValidationException
-from app.constants.job_prefixes import JOB_PREFIXES_ENUM
 from app.lib.logging.logging import get_logger
-from app.configs.worker_configuration import JobType
-from app.models.waitlist import WaitlistStatusEnum
-from app.services.job_service import enqueue_job, get_job_status
-from app.repositories.waitlist_repository import WaitlistRepository
+from app.models.waitlist import WaitlistStatusEnum, WaitlistUpdateData
+from app.repositories.waitlist_repository import ClerkInvitationMapping, WaitlistRepository
 from app.services.clerk_service import ClerkService
-from rq.job import Job
-from app.dtos.responses.invitation_response_dto import InvitationResponseDTO
 
 
 logger = get_logger(__name__)
@@ -19,7 +14,10 @@ class InvitationService:
         self.waitlist_repository = waitlist_repository
         self.clerk_service = clerk_service
     
-    async def _validate_waitlist_ids_by_status(self, waitlist_ids: list[int], status: WaitlistStatusEnum) -> bool:
+    async def get_clerk_invitation_ids_by_waitlist_ids(self, waitlist_ids: list[int]) -> list[ClerkInvitationMapping]:
+        return await self.waitlist_repository.get_clerk_invitation_ids_by_waitlist_ids(waitlist_ids)
+    
+    async def validate_waitlist_ids(self, waitlist_ids: list[int], status: WaitlistStatusEnum | None = None) -> bool:
         valid_ids: list[int] = await self.waitlist_repository.get_valid_waitlist_ids(waitlist_ids, status=status)
         valid_ids_set: set[int] = set(valid_ids)
         requested_ids_set: set[int] = set(waitlist_ids)
@@ -31,6 +29,36 @@ class InvitationService:
             return False
         
         return True
+    
+    async def revoke_clerk_invitation(self, waitlist_id: int, clerk_invitation_id: str):
+        start_time = time.time()
+        
+        wide_event: dict[str, object] = {
+            "event_type": "revoke_invitation",
+            "clerk_invitation_id": clerk_invitation_id,
+            "status": "processing",
+        }
+        
+        try:
+            await self.clerk_service.revoke_invitation(clerk_invitation_id)
+            
+            await self.waitlist_repository.update_waitlist_entry(
+                waitlist_id, 
+                WaitlistUpdateData(status=WaitlistStatusEnum.revoked, clerk_invitation_id=None, expired_at=None)
+            )
+            
+            wide_event["status"] = "success"    
+            wide_event["duration_ms"] = (time.time() - start_time) * 1000
+            logger.info(wide_event)
+            
+        except Exception as e:
+            wide_event["status"] = "failed"
+            wide_event["error"] = str(e)
+            wide_event["error_type"] = type(e).__name__
+            wide_event["duration_ms"] = (time.time() - start_time) * 1000
+            logger.error(wide_event)
+            
+            raise e
     
     async def create_clerk_user_and_send_invitation(self, waitlist_id: int):
         start_time = time.time()
@@ -55,109 +83,30 @@ class InvitationService:
             wide_event["first_name"] = waitlist_entry.first_name
             wide_event["email"] = waitlist_entry.email
             
-            try:
-                entry = await self.waitlist_repository.get_waitlist_by_email(waitlist_entry.email.__str__())
+            result = await self.clerk_service.invite_user(email_address=waitlist_entry.email.__str__(), ticket=waitlist_entry.ticket_id.__str__())
                 
-                if not entry:
-                    wide_event["status"] = "skipped"
-                    wide_event["reason"] = "entry_not_found_for_email"
-                    wide_event["duration_ms"] = (time.time() - start_time) * 1000
-                    logger.info(wide_event)
-                    return
+            await self.waitlist_repository.update_waitlist_entry(
+                waitlist_id, 
+                WaitlistUpdateData(
+                    status=WaitlistStatusEnum.invited, 
+                    clerk_invitation_id=result.id, 
+                    invited_at=datetime.now(timezone.utc),
+                    expired_at=datetime.now(timezone.utc) + timedelta(days=30)
+                )
+            )
                 
-                await self.clerk_service.invite_user(email_address=waitlist_entry.email.__str__(), ticket=entry.ticket_id.__str__())
-                
-                await self.waitlist_repository.update_waitlist_entry_status(waitlist_id, WaitlistStatusEnum.invited)
-                
-                wide_event["status"] = "success"
-                
-            except Exception as clerk_error:
-                wide_event["status"] = "failed_clerk_operation"
-                wide_event["error"] = str(clerk_error)
-                logger.error(wide_event)
-                raise clerk_error
-            
+            wide_event["status"] = "success"    
             wide_event["duration_ms"] = (time.time() - start_time) * 1000
             logger.info(wide_event)
-        
         except Exception as e:
             wide_event["status"] = "failed"
             wide_event["error"] = str(e)
             wide_event["error_type"] = type(e).__name__
             wide_event["duration_ms"] = (time.time() - start_time) * 1000
             logger.error(wide_event)
+            
+            await self.waitlist_repository.update_waitlist_entry(waitlist_id,
+                WaitlistUpdateData(status=WaitlistStatusEnum.failed)
+            )
+            
             raise e
-        
-    async def enqueue_bulk_invitations(self, waitlist_ids: list[int]) -> list[InvitationResponseDTO]:
-        start_time = time.time()
-        waitlist_ids = waitlist_ids
-        waitlist_count = len(waitlist_ids)
-        
-        wide_event: dict[str, object] = {
-            "event_type": "enqueue_bulk_invitations",
-            "waitlist_count": waitlist_count,
-            "waitlist_ids": waitlist_ids,
-            "status": "processing",
-        }
-        
-        try:
-            is_valid_ids = await self._validate_waitlist_ids_by_status(waitlist_ids, status=WaitlistStatusEnum.sending)
-            
-            if not is_valid_ids:
-                wide_event["status"] = "failed"
-                wide_event["reason"] = "invalid_waitlist_ids"
-                wide_event["duration_ms"] = (time.time() - start_time) * 1000
-                logger.warning(wide_event)
-                raise ValidationException(errors="One or more waitlist IDs are invalid")
-            
-            jobs: list[Job] = []
-            jobs_response: list[InvitationResponseDTO] = []
-            
-            for waitlist_id in waitlist_ids:
-                job = enqueue_job(
-                    'app.workers.send_invitation_worker.process_invitations',
-                    job_type=JobType.LIGHT,
-                    job_prefix=JOB_PREFIXES_ENUM.INVITATION,
-                    waitlist_id=waitlist_id
-                )
-                jobs.append(job.id)
-                
-                job_status = get_job_status(job_id=job.id, job_type=JobType.LIGHT)
-                
-                response = InvitationResponseDTO(
-                    job_id=str(job.id),
-                    status=job_status,
-                    waitlist_id=waitlist_id
-                )
-                
-                jobs_response.append(response)
-            
-            job_ids = [str(job_id) for job_id in jobs]
-            
-            wide_event["status"] = "success"
-            wide_event["job_count"] = len(job_ids)
-            wide_event["job_ids"] = job_ids
-            wide_event["duration_ms"] = (time.time() - start_time) * 1000
-            
-            logger.info(wide_event)
-            
-            return jobs_response
-        
-        except ValidationException as ve:
-            wide_event["status"] = "validation_error"
-            wide_event["error"] = ve.errors
-            wide_event["error_type"] = type(ve).__name__
-            wide_event["duration_ms"] = (time.time() - start_time) * 1000
-            
-            logger.warning(wide_event)
-            raise ve
-            
-        except Exception as e:
-            wide_event["status"] = "failed"
-            wide_event["error"] = str(e)
-            wide_event["error_type"] = type(e).__name__
-            wide_event["duration_ms"] = (time.time() - start_time) * 1000
-            
-            logger.error(wide_event)
-            raise e
-        
