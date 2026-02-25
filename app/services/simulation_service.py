@@ -182,13 +182,6 @@ class SimulationService:
                 if total_rows > 0 and index % 50 == 0:
                     progress = int((index / total_rows) * 100)
                     
-                    logger.info({
-                        "event_type": "csv_validation_progress",
-                        "uploaded_file_id": uploaded_file_id,
-                        "progress_percentage": progress,
-                        "processed_rows": index,
-                    })
-
                     await self.simulation_repository.update_simulation_uploaded_file(
                         id=uploaded_file_id,
                         uploaded_file=SimulationUploadedFileUpdateData(
