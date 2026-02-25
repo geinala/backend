@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 import time
 
+from fastapi.exceptions import ValidationException
+
 from app.lib.logging.logging import get_logger
 from app.models.waitlist import WaitlistStatusEnum, WaitlistUpdateData
 from app.repositories.waitlist_repository import ClerkInvitationMapping, WaitlistRepository
@@ -17,7 +19,7 @@ class InvitationService:
     async def get_clerk_invitation_ids_by_waitlist_ids(self, waitlist_ids: list[int]) -> list[ClerkInvitationMapping]:
         return await self.waitlist_repository.get_clerk_invitation_ids_by_waitlist_ids(waitlist_ids)
     
-    async def validate_waitlist_ids(self, waitlist_ids: list[int], status: WaitlistStatusEnum | None = None) -> bool:
+    async def validate_waitlist_ids(self, waitlist_ids: list[int], status: WaitlistStatusEnum | None = None):
         valid_ids: list[int] = await self.waitlist_repository.get_valid_waitlist_ids(waitlist_ids, status=status)
         valid_ids_set: set[int] = set(valid_ids)
         requested_ids_set: set[int] = set(waitlist_ids)
@@ -25,11 +27,8 @@ class InvitationService:
         invalid_ids: set[int] = requested_ids_set - valid_ids_set
         
         if invalid_ids:
-            logger.warning(f"Invalid waitlist IDs or status mismatch: {list(invalid_ids)}")
-            return False
+            raise ValidationException(errors=f"Invalid waitlist IDs: {', '.join(map(str, invalid_ids))}")
         
-        return True
-    
     async def revoke_clerk_invitation(self, waitlist_id: int, clerk_invitation_id: str):
         start_time = time.time()
         

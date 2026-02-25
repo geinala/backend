@@ -11,7 +11,6 @@ from app.dtos.responses.invitation_response_dto import InvitationResponseDTO, Re
 from app.lib.logging.logging import get_logger
 from app.lib.response_formatter import ResponseFormatter
 from app.models.waitlist import WaitlistStatusEnum
-from app.models.waitlist import WaitlistStatusEnum
 from app.repositories.waitlist_repository import WaitlistRepository
 from app.services.invitation_service import InvitationService
 from app.services.clerk_service import ClerkService
@@ -40,14 +39,7 @@ class InvitationsController:
         }
         
         try:
-            is_valid_ids = await self.invitation_service.validate_waitlist_ids(waitlist_ids)
-            
-            if not is_valid_ids:
-                wide_event["status"] = "failed"
-                wide_event["reason"] = "invalid_waitlist_ids"
-                wide_event["duration_ms"] = (time.time() - start_time) * 1000
-                logger.warning(wide_event)
-                raise ValidationException(errors="One or more waitlist IDs are invalid")
+            await self.invitation_service.validate_waitlist_ids(waitlist_ids)
             
             waitlist_with_clerk_invitation_ids = await self.invitation_service.get_clerk_invitation_ids_by_waitlist_ids(waitlist_ids)
             
@@ -106,14 +98,7 @@ class InvitationsController:
         }
         
         try:
-            is_valid_ids = await self.invitation_service.validate_waitlist_ids(waitlist_ids, status=WaitlistStatusEnum.sending)
-            
-            if not is_valid_ids:
-                wide_event["status"] = "failed"
-                wide_event["reason"] = "invalid_waitlist_ids"
-                wide_event["duration_ms"] = (time.time() - start_time) * 1000
-                logger.warning(wide_event)
-                raise ValidationException(errors="One or more waitlist IDs are invalid")
+            await self.invitation_service.validate_waitlist_ids(waitlist_ids, status=WaitlistStatusEnum.sending)
             
             jobs: list[Job] = []
             jobs_response: list[InvitationResponseDTO] = []

@@ -73,6 +73,13 @@ class EnvironmentConfiguration(BaseSettings):
     
     # Frontend Configuration
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    
+    # MinIO Configuration
+    MINIO_ENDPOINT: str = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+    MINIO_ACCESS_KEY: str = os.getenv("MINIO_ACCESS_KEY", "minio_access_key")
+    MINIO_SECRET_KEY: str = os.getenv("MINIO_SECRET_KEY", "minio_secret_key")
+    MINIO_USE_SSL: bool = os.getenv("MINIO_USE_SSL", "false").lower() == "true"
+    MINIO_BUCKET_NAME: str = os.getenv("MINIO_BUCKET_NAME", "simulation-results")
 
     class Config:
         env_file = ".env"
