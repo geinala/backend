@@ -6,12 +6,12 @@ from app.lib.db import get_db
 
 logger = get_logger(__name__)
 
-async def validate_dataset(simulation_id: str):
+async def process_files(simulation_id: str):
     job = get_current_job()
     start_time = time.time()
     
     wide_event: dict[str, object] = {
-        "event_type": "worker_validate_dataset",
+        "event_type": "worker_process_files",
         "job_id": job.id if job else None,
         "simulation_id": simulation_id,
         "status": "processing",
@@ -21,14 +21,17 @@ async def validate_dataset(simulation_id: str):
         from app.services.simulation_service import SimulationService
         from app.services.minio_service import MinioService
         from app.repositories.simulation_repository import SimulationRepository
+        from app.repositories.node_repository import NodeRepository
         from app.lib.minio import minioClient
         
         db_session = get_db()
-        simulation_repository = SimulationRepository(next(db_session))
+        db = next(db_session)
+        simulation_repository = SimulationRepository(db)
+        node_repository = NodeRepository(db)
         minio_service = MinioService(minio_client=minioClient)
-        simulation_service = SimulationService(minio_service, simulation_repository)
+        simulation_service = SimulationService(minio_service, simulation_repository, node_repository)
         
-        await simulation_service.validate_dataset(simulation_id)
+        await simulation_service.process_files(simulation_id=simulation_id)
         
         wide_event["status"] = "success"
         wide_event["duration_ms"] = (time.time() - start_time) * 1000

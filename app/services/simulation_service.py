@@ -2,10 +2,12 @@ from datetime import datetime, timezone
 import time as time_module
 from fastapi.exceptions import ValidationException
 
+from app.models.node import GroupedNodeData, Node, NodeDetailCreate
 from app.models.simulation import SimulationUploadedFileUpdateData, SimulationUploadedFileStatusEnum
 from app.services.file_service import FileService
 from app.services.minio_service import MinioService
 from app.repositories.simulation_repository import SimulationRepository
+from app.repositories.node_repository import NodeRepository
 from app.lib.logging.logging import get_logger
 from app.models.error_report import ValidationError, CSVValidationResult
 
@@ -13,11 +15,36 @@ logger = get_logger(__name__)
 
 
 class SimulationService:
-    def __init__(self, minio_service: MinioService, simulation_repository: SimulationRepository):
+    def __init__(
+        self,
+        minio_service: MinioService,
+        simulation_repository: SimulationRepository,
+        node_repository: NodeRepository
+    ):
         self.minio_service = minio_service
         self.simulation_repository = simulation_repository
+        self.node_repository = node_repository
 
-    async def validate_dataset(self, simulation_id: str) -> dict[str, object]:
+    async def process_files(self, simulation_id: str):
+        try:
+            dataset = await self._get_dataset(simulation_id)
+            fieldnames, rows = FileService.parse_csv_bytes(bytes(dataset["file_data"]))
+            uploaded_file_id: int = int(dataset["uploaded_file_id"])
+            
+            await self._validate_dataset(simulation_id=simulation_id, uploaded_file_id=uploaded_file_id, fieldnames=fieldnames, rows=rows)
+            await self._create_nodes_from_dataset(simulation_id=simulation_id, uploaded_file_id=uploaded_file_id, rows=rows)
+            
+            await self.simulation_repository.update_simulation_uploaded_file(
+                id=uploaded_file_id,
+                uploaded_file=SimulationUploadedFileUpdateData(
+                    status=SimulationUploadedFileStatusEnum.ready,
+                )
+            )
+            
+        except Exception as e:
+            raise e
+
+    async def _validate_dataset(self, simulation_id: str, uploaded_file_id: int, fieldnames: list[str], rows: list[dict[str, str]]) -> dict[str, object]:
         start_time = time_module.time()
         wide_event: dict[str, object] = {
             "event_type": "simulation_validate_dataset",
@@ -26,9 +53,6 @@ class SimulationService:
         }
         
         try:
-            dataset = await self._get_dataset(simulation_id)
-            uploaded_file_id: int = int(dataset["uploaded_file_id"])
-            
             await self.simulation_repository.update_simulation_uploaded_file(
                 id=uploaded_file_id,
                 uploaded_file=SimulationUploadedFileUpdateData(
@@ -37,7 +61,7 @@ class SimulationService:
                 )
             )
             
-            errors = await self._validate_csv_content(dataset=bytes(dataset["file_data"]), uploaded_file_id=uploaded_file_id)
+            errors = await self._validate_csv_content(fieldnames=fieldnames, rows=rows, uploaded_file_id=uploaded_file_id)
             
             wide_event["total_rows"] = errors["row_count"]
             wide_event["error_count"] = len(errors["errors"])
@@ -80,6 +104,100 @@ class SimulationService:
             wide_event["error_type"] = type(e).__name__
             wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
             logger.error(wide_event)
+            raise
+
+    async def _create_nodes_from_dataset(self, simulation_id: str, uploaded_file_id: int, rows: list[dict[str, str]]): 
+        start_time = time_module.time()
+        wide_event: dict[str, object] = {
+            "event_type": "simulation_create_nodes",
+            "simulation_id": simulation_id,
+            "status": "processing",
+        }
+        
+        try:
+            grouped_nodes: dict[tuple[str, str], GroupedNodeData] = {}
+            
+            await self.simulation_repository.update_simulation_uploaded_file(
+                id=uploaded_file_id,
+                uploaded_file=SimulationUploadedFileUpdateData(
+                    status=SimulationUploadedFileStatusEnum.processing,
+                )
+            )
+            
+            for row in rows:
+                latitude = row.get("Customer_Latitude", "").strip()
+                longitude = row.get("Customer_Longitude", "").strip()
+                coord_key = (latitude, longitude)
+                
+                if coord_key not in grouped_nodes:
+                    grouped_nodes[coord_key] = {
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "total_demand": 0,
+                        "details": []
+                    }
+                
+                try:
+                    weight = float(row.get("Weight", "0").strip())
+                except (ValueError, AttributeError):
+                    weight = 0
+                    
+                logger.info({
+                    "event_type": "processing_row",
+                    "simulation_id": simulation_id,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "weight": weight,
+                })
+                
+                grouped_nodes[coord_key]["total_demand"] += weight
+                
+                detail_dict: NodeDetailCreate = NodeDetailCreate(
+                    name=row.get("Customer_Name", "").strip(),
+                    address=row.get("Address", "").strip(),
+                    city=row.get("City", "").strip(),
+                    district=row.get("District", "").strip(),
+                    weight=weight,
+                )
+                grouped_nodes[coord_key]["details"].append(detail_dict)
+            
+            grouped_data: list[tuple[Node, list[NodeDetailCreate]]] = []
+            
+            for grouped_node_data in grouped_nodes.values():
+                details = grouped_node_data["details"]
+                
+                node = Node(
+                    simulation_id=simulation_id,
+                    latitude=grouped_node_data["latitude"],
+                    longitude=grouped_node_data["longitude"],
+                    demand=grouped_node_data["total_demand"],
+                    is_depot=0
+                )
+                
+                grouped_data.append((node, details))
+            
+            self.node_repository.create_nodes_with_grouped_details(grouped_data=grouped_data)
+            
+            wide_event["status"] = "success"
+            wide_event["total_unique_nodes"] = len(grouped_data)
+            wide_event["total_rows_processed"] = len(rows)
+            wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
+            logger.info(wide_event)
+            
+        except Exception as e:
+            wide_event["status"] = "failed"
+            wide_event["error"] = str(e)
+            wide_event["error_type"] = type(e).__name__
+            wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
+            logger.error(wide_event)
+            
+            await self.simulation_repository.update_simulation_uploaded_file(
+                id=uploaded_file_id,
+                uploaded_file=SimulationUploadedFileUpdateData(
+                    status=SimulationUploadedFileStatusEnum.failed,
+                )
+            )
+            
             raise
 
     async def _get_dataset(self, simulation_id: str) -> dict[str, bytes | int]:
@@ -151,13 +269,11 @@ class SimulationService:
             logger.error(wide_event)
             raise
     
-    async def _validate_csv_content(self, dataset: bytes, uploaded_file_id: int) -> CSVValidationResult:
+    async def _validate_csv_content(self, fieldnames: list[str], rows: list[dict[str, str]], uploaded_file_id: int) -> CSVValidationResult:
         errors: list[ValidationError] = []
         row_count = 0
 
         try:
-            fieldnames, rows = FileService.parse_csv_bytes(dataset)
-            
             # Check for missing required fields and add them as errors for each row
             missing_fields = self._get_missing_required_fields(fieldnames)
             
@@ -172,10 +288,9 @@ class SimulationService:
                 )
             )
             
-            # If there are missing required fields, add them as errors for all rows
             if missing_fields:
                 for index, row in enumerate(rows):
-                    row_number = index + 2  # header is row 1
+                    row_number = index + 2 
                     for field in missing_fields:
                         errors.append(
                             ValidationError(
@@ -187,15 +302,13 @@ class SimulationService:
                         )
             
             for index, row in enumerate(rows):
-                row_number = index + 2  # header is row 1
+                row_number = index + 2
                 row_count += 1
                 
-                # Only validate row fields if all required fields exist
                 if not missing_fields:
                     row_errors = self._validate_row(row, row_number)
                     errors.extend(row_errors)
 
-                # Update progress tiap 50 row
                 if total_rows > 0 and index % 50 == 0:
                     progress = int((index / total_rows) * 100)
                     
@@ -212,7 +325,7 @@ class SimulationService:
             final_status = (
                 SimulationUploadedFileStatusEnum.failed
                 if invalid_row_count > 0
-                else SimulationUploadedFileStatusEnum.ready
+                else SimulationUploadedFileStatusEnum.validated
             )
             
             await self.simulation_repository.update_simulation_uploaded_file(

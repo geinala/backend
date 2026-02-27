@@ -30,6 +30,8 @@ class Simulation(Base):
 class SimulationUploadedFileStatusEnum(enum.Enum):
     uploaded = 'uploaded'
     validating = 'validating'
+    validated = 'validated'
+    processing = 'processing'
     failed = 'failed'
     ready = 'ready'
 

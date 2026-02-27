@@ -12,12 +12,12 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/simulations", tags=["Simulations"])
 
 @router.post(
-    path="/{id}/files/validate",
-    summary="Validate dataset for simulation"
+    path="/{id}/files",
+    summary="Process files for simulation"
 )
-async def validate_dataset(
+async def process_files(
     id: str,
     db: Session = Depends(get_db)
 ):
     controller = SimulationController(db=db)
-    return await controller.validate_dataset(simulation_id=id)
+    return await controller.process_files(simulation_id=id)
