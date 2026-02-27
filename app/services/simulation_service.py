@@ -158,7 +158,8 @@ class SimulationService:
         try:
             fieldnames, rows = FileService.parse_csv_bytes(dataset)
             
-            self._validate_required_fields(fieldnames)
+            # Check for missing required fields and add them as errors for each row
+            missing_fields = self._get_missing_required_fields(fieldnames)
             
             total_rows = len(rows)
             
@@ -171,12 +172,28 @@ class SimulationService:
                 )
             )
             
+            # If there are missing required fields, add them as errors for all rows
+            if missing_fields:
+                for index, row in enumerate(rows):
+                    row_number = index + 2  # header is row 1
+                    for field in missing_fields:
+                        errors.append(
+                            ValidationError(
+                                row_number=row_number,
+                                field_name=field,
+                                invalid_value="[field not found in CSV]",
+                                error_message=f"{field} is a required field but not found in CSV header",
+                            )
+                        )
+            
             for index, row in enumerate(rows):
                 row_number = index + 2  # header is row 1
                 row_count += 1
                 
-                row_errors = self._validate_row(row, row_number)
-                errors.extend(row_errors)
+                # Only validate row fields if all required fields exist
+                if not missing_fields:
+                    row_errors = self._validate_row(row, row_number)
+                    errors.extend(row_errors)
 
                 # Update progress tiap 50 row
                 if total_rows > 0 and index % 50 == 0:
@@ -228,19 +245,18 @@ class SimulationService:
             )
             raise ValueError(f"Failed to validate CSV: {str(e)}")
     
-    def _validate_required_fields(self, fieldnames: list[str]) -> None:
+    def _get_missing_required_fields(self, fieldnames: list[str]) -> set[str]:
         required_fields = {
             "Customer_Name",
             "Customer_Latitude",
             "Customer_Longitude",
-            "Berat",
+            "Weight",
+            "Address",
+            "District",
+            "City"
         }
 
-        missing_fields = required_fields - set(fieldnames or [])
-        if missing_fields:
-            raise ValueError(
-                f"Missing required fields: {', '.join(missing_fields)}"
-            )
+        return required_fields - set(fieldnames or [])
 
     def _validate_row(
         self,
@@ -303,26 +319,59 @@ class SimulationService:
                     error_message="Customer_Longitude must be a valid number",
                 )
             )
+            
+        # Address
+        if not row.get("Address", "").strip():
+            errors.append(
+                ValidationError(
+                    row_number=row_number,
+                    field_name="Address",
+                    invalid_value="[empty]",
+                    error_message="Address is required and cannot be empty",
+                )
+            )
+            
+        # District
+        if not row.get("District", "").strip():
+            errors.append(
+                ValidationError(
+                    row_number=row_number,
+                    field_name="District",
+                    invalid_value="[empty]",
+                    error_message="District is required and cannot be empty",
+                )
+            )
+            
+        # City
+        if not row.get("City", "").strip():
+            errors.append(
+                ValidationError(
+                    row_number=row_number,
+                    field_name="City",
+                    invalid_value="[empty]",
+                    error_message="City is required and cannot be empty",
+                )
+            )
 
-        # Berat
+        # Weight
         try:
-            berat = float(row.get("Berat", "").strip())
-            if berat <= 0:
+            weight = float(row.get("Weight", "").strip())
+            if weight <= 0:
                 errors.append(
                     ValidationError(
                         row_number=row_number,
-                        field_name="Berat",
-                        invalid_value=str(berat),
-                        error_message="Berat (weight) must be a positive number",
+                        field_name="Weight",
+                        invalid_value=str(weight),
+                        error_message="Weight must be a positive number",
                     )
                 )
         except (ValueError, AttributeError):
             errors.append(
                 ValidationError(
                     row_number=row_number,
-                    field_name="Berat",
-                    invalid_value=row.get("Berat", "[empty]"),
-                    error_message="Berat must be a valid positive number",
+                    field_name="Weight",
+                    invalid_value=row.get("Weight", "[empty]"),
+                    error_message="Weight must be a valid positive number",
                 )
             )
 
