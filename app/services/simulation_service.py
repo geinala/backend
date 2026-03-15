@@ -116,6 +116,7 @@ class SimulationService:
         
         try:
             grouped_nodes: dict[tuple[str, str], GroupedNodeData] = {}
+            node_index_counter = 1 # start from 1 because index 0 is reserved for depot node
             
             await self.simulation_repository.update_simulation_uploaded_file(
                 id=uploaded_file_id,
@@ -131,11 +132,13 @@ class SimulationService:
                 
                 if coord_key not in grouped_nodes:
                     grouped_nodes[coord_key] = {
-                        "latitude": latitude,
-                        "longitude": longitude,
+                        "latitude": float(latitude) if latitude else 0.0,
+                        "longitude": float(longitude) if longitude else 0.0,
                         "total_demand": 0,
+                        "matrix_index": node_index_counter,
                         "details": []
                     }
+                    node_index_counter += 1
                 
                 try:
                     weight = float(row.get("Weight", "0").strip())
@@ -171,7 +174,8 @@ class SimulationService:
                     latitude=grouped_node_data["latitude"],
                     longitude=grouped_node_data["longitude"],
                     demand=grouped_node_data["total_demand"],
-                    is_depot=0
+                    is_depot=0,
+                    matrix_index=grouped_node_data["matrix_index"],
                 )
                 
                 grouped_data.append((node, details))

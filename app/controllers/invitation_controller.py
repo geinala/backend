@@ -17,6 +17,7 @@ from app.services.clerk_service import ClerkService
 from app.lib.clerk import get_clerk_sdk
 from app.dtos.requests.invitation_request_dto import SendInvitationRequestDTO, RevokeInvitationRequestDTO
 from app.services.job_service import enqueue_job, get_job_status
+from app.workers.invitation_worker import process_invitations, process_revoke_invitations
 
 logger = get_logger(__name__)
 
@@ -51,7 +52,7 @@ class InvitationsController:
                 clerk_invitation_id = entry["clerk_invitation_id"]
                 
                 job = enqueue_job(
-                    'app.workers.invitation_worker.process_revoke_invitations',
+                    process_revoke_invitations,
                     job_type=JobType.LIGHT,
                     job_prefix=JOB_PREFIXES_ENUM.INVITATION_REVOKE,
                     waitlist_id=waitlist_id,
@@ -105,7 +106,7 @@ class InvitationsController:
             
             for waitlist_id in waitlist_ids:
                 job = enqueue_job(
-                    'app.workers.invitation_worker.process_invitations',
+                    process_invitations,
                     job_type=JobType.LIGHT,
                     job_prefix=JOB_PREFIXES_ENUM.INVITATION,
                     waitlist_id=waitlist_id

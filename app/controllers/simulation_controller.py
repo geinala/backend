@@ -13,6 +13,7 @@ from app.services.job_service import enqueue_job
 from app.services.minio_service import MinioService
 from app.services.simulation_service import SimulationService
 from app.lib.minio import minioClient
+from app.workers.simulation_worker import process_files as process_simulation_files
 
 logger = get_logger(__name__)
 
@@ -35,7 +36,7 @@ class SimulationController:
         
         try:
             job = enqueue_job(
-                'app.workers.simulation_worker.process_files',
+                process_simulation_files,
                 job_type=JobType.HEAVY,
                 job_prefix=JOB_PREFIXES_ENUM.SIMULATION_PROCESSING_DATA,
                 simulation_id=simulation_id

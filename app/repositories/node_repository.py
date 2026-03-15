@@ -30,10 +30,11 @@ class NodeRepository:
             raise
 
     def get_nodes_by_simulation_id(self, simulation_id: str) -> list[Node]:
-        from sqlalchemy import desc
-        
+        return self.db.query(Node).filter(Node.simulation_id == simulation_id).all()
+
+    def get_nodes_with_details_by_simulation_id(self, simulation_id: str) -> list[Node]:
         return self.db.query(Node).options(
             joinedload(Node.details)
         ).filter(
             Node.simulation_id == simulation_id
-        ).order_by(desc(Node.is_depot)).all()
+        ).order_by(Node.matrix_index.asc()).all()

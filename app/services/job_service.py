@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Callable, Optional, cast
 from uuid import uuid4
 from rq.job import Job, JobStatus
 from app.configs.worker_configuration import get_queue_for_job, JobType
@@ -36,15 +36,16 @@ class JobService:
     
     @staticmethod
     def enqueue_job(
-        function_path: str,
+        function_path: str | Callable[..., Any],
         job_type: JobType = JobType.DEFAULT,
         job_prefix: Optional[str] = None,
+        depends_on: Optional[Job | list[Job]] = None,
         *args: Any,
         **kwargs: Any
     ) -> Job:
         with wide_event(
             "enqueue_job",
-            function_path=function_path,
+            function_path=function_path if isinstance(function_path, str) else f"{function_path.__module__}.{function_path.__name__}",
             job_type=job_type.value,
             job_prefix=job_prefix,
         ) as event:
@@ -56,9 +57,10 @@ class JobService:
                 custom_job_id = None
             
             job = queue.enqueue( # type: ignore [reportUnknownMemberType]
-                function_path,
+                cast(Any, function_path),
                 *args,
                 job_id=custom_job_id,
+                depends_on=depends_on,
                 **kwargs
             ) 
             
@@ -67,15 +69,15 @@ class JobService:
             
             return job
 
-
 def enqueue_job(
-    function_path: str,
+    function_path: str | Callable[..., Any],
     job_type: JobType = JobType.DEFAULT,
     job_prefix: Optional[str] = None,
+    depends_on: Optional[Job | list[Job]] = None,
     *args: Any,
     **kwargs: Any
 ) -> Job:
-    return JobService.enqueue_job(function_path, job_type, job_prefix, *args, **kwargs)
+    return JobService.enqueue_job(function_path, job_type, job_prefix, depends_on, *args, **kwargs)
 
 def get_job_status(job_id: str, job_type: JobType = JobType.DEFAULT) -> AppJobStatus:
     rq_job_status = JobService.get_job_status(job_id, job_type)

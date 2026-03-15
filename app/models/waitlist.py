@@ -1,10 +1,8 @@
 from pydantic import BaseModel
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer, String, DateTime, Enum
 from datetime import datetime, timezone
 import enum
-
-Base = declarative_base()
+from app.lib.db import Base
 
 class WaitlistStatusEnum(enum.Enum):
     pending = 'pending'

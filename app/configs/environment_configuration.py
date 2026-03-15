@@ -80,6 +80,10 @@ class EnvironmentConfiguration(BaseSettings):
     MINIO_SECRET_KEY: str = os.getenv("MINIO_SECRET_KEY", "minio_secret_key")
     MINIO_USE_SSL: bool = os.getenv("MINIO_USE_SSL", "false").lower() == "true"
     MINIO_BUCKET_NAME: str = os.getenv("MINIO_BUCKET_NAME", "simulation-results")
+    
+    # TomTom Configuration
+    TOMTOM_MATRIX_API_KEY: str = os.getenv("TOMTOM_MATRIX_API_KEY", "")
+    TOMTOM_ROUTING_API_KEY: str = os.getenv("TOMTOM_ROUTING_API_KEY", "")
 
     class Config:
         env_file = ".env"
