@@ -2,6 +2,7 @@ import time
 from rq import get_current_job
 
 from app.lib.db import get_db
+from app.repositories.simulation_repository import SimulationRepository
 from app.services.route_service import RouteService
 from app.services.tomtom_service import TomTomService
 from app.repositories.solution_repository import SolutionRepository
@@ -31,7 +32,9 @@ async def generate_routes(simulation_id: str, depart_at: str | None = None):
             solution_repository=SolutionRepository(db), 
             node_repository=NodeRepository(db),
             vehicle_repository=VehicleRepository(db),
-            route_repository=RouteRepository(db))
+            route_repository=RouteRepository(db),
+            simulation_repository=SimulationRepository(db)
+            )
 
         wide_event["stage"] = "generating_routes"
         

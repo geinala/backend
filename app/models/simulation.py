@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 class SimulationStatusEnum(enum.Enum):
     pending = 'pending'
+    processing = 'processing'
     running = 'running'
     completed = 'completed'
     failed = 'failed'

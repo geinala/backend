@@ -8,6 +8,8 @@ from app.repositories.vehicle_repository import VehicleRepository
 from app.services.tomtom_service import TomTomRouteResultResponse, TomTomService
 from app.repositories.solution_repository import SolutionRepository
 from app.repositories.node_repository import NodeRepository
+from app.repositories.simulation_repository import SimulationRepository
+from app.models.simulation import SimulationStatusEnum
 
 class RouteService:
     ROUTE_GENERATION_SUBMISSION_DELAY_IN_SECONDS = 2
@@ -17,13 +19,15 @@ class RouteService:
                  solution_repository: SolutionRepository,
                  node_repository: NodeRepository,
                  vehicle_repository: VehicleRepository,
-                 route_repository: RouteRepository
+                 route_repository: RouteRepository,
+                 simulation_repository: SimulationRepository
                  ):
         self.tomtom_service = tomtom_service
         self.solution_repository = solution_repository
         self.node_repository = node_repository
         self.vehicle_repository = vehicle_repository
         self.route_repository = route_repository
+        self.simulation_repository = simulation_repository
 
     async def generate_routes(self, simulation_id: str, depart_at: str | None = None) -> None:
         solutions = await self.solution_repository.get_solutions_by_simulation_id(simulation_id)
@@ -113,5 +117,7 @@ class RouteService:
                 )
 
         self.route_repository.bulk_insert_route_legs(route_legs)
+        
+        await self.simulation_repository.update_simulation_status(simulation_id, SimulationStatusEnum.running)
 
         self.vehicle_repository.db.commit()
