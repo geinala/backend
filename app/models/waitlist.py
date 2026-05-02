@@ -8,7 +8,7 @@ class WaitlistStatusEnum(enum.Enum):
     pending = 'pending'
     sending = 'sending'
     confirmed = 'confirmed'
-    rejected = 'rejected'
+    denied = 'denied'
     invited = 'invited'
     expired = 'expired'
     failed = 'failed'

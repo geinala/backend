@@ -4,7 +4,7 @@ from app.configs.environment_configuration import get_environment_configuration
 
 environtment = get_environment_configuration()
 
-minioClient = Minio(
+minio_client = Minio(
     endpoint=environtment.MINIO_ENDPOINT,
     access_key=environtment.MINIO_ACCESS_KEY,
     secret_key=environtment.MINIO_SECRET_KEY,

@@ -10,7 +10,11 @@ class Node(Base):
     __tablename__ = "nodes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    simulation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    simulation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("simulations.id"),
+        nullable=True,
+    )
     
     matrix_index: Mapped[int] = mapped_column(Integer, nullable=False)
 

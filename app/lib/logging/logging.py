@@ -67,6 +67,7 @@ def setup_logging(
     
     logger = logging.getLogger(name)
     logger.setLevel(numeric_level)
+    logger.propagate = False
     
     if logger.handlers:
         return logger

@@ -9,7 +9,7 @@ from app.controllers.simulation_controller import SimulationController
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/simulations", tags=["Simulations"])
+router = APIRouter(prefix="/simulations/jobs", tags=["Simulations Jobs"])
 
 @router.post(
     path="/{id}/files",
@@ -20,4 +20,4 @@ async def process_files(
     db: Session = Depends(get_db)
 ):
     controller = SimulationController(db=db)
-    return await controller.process_files(simulation_id=id)
+    return await controller.process_files(simulation_job_id=id)

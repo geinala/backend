@@ -83,7 +83,7 @@ class MatrixService:
         self.matrix_repository.bulk_insert_matrix_batches(saved_batches)
         
     async def get_matrix_results(self, simulation_id: str):
-        batches = self.matrix_repository.get_batches_by_simulation_id(simulation_id, status=MatrixBatchStatusEnum.SUBMITTED)
+        batches = self.matrix_repository.get_batches_by_simulation_id(simulation_id, status=MatrixBatchStatusEnum.submitted)
 
         has_pending_batches = False
         
@@ -100,7 +100,7 @@ class MatrixService:
                 self.matrix_repository.update_matrix_batch_status(
                     batch_id=batch.id,
                     data=UpdateMatrixBatchStatusData(
-                        status=MatrixBatchStatusEnum.COMPLETED,
+                        status=MatrixBatchStatusEnum.completed,
                         completed_at=datetime.now(timezone.utc)
                     )
                 )
@@ -112,7 +112,7 @@ class MatrixService:
                 self.matrix_repository.update_matrix_batch_status(
                     batch_id=batch.id,
                     data=UpdateMatrixBatchStatusData(
-                        status=MatrixBatchStatusEnum.FAILED,
+                        status=MatrixBatchStatusEnum.failed,
                         completed_at=datetime.now(timezone.utc)
                     )
                 )
@@ -148,10 +148,10 @@ class MatrixService:
     async def has_pending_batches(self, simulation_id: str):
         remaining_batches = self.matrix_repository.get_batches_by_simulation_id(
             simulation_id, 
-            status=MatrixBatchStatusEnum.SUBMITTED
+            status=MatrixBatchStatusEnum.submitted
         )
 
-        return len(remaining_batches) == 0
+        return len(remaining_batches) > 0
     
     async def build_time_matrix(self, simulation_id: str) -> list[list[int]]:
         results = self.matrix_repository.get_matrix_results_by_simulation_id(simulation_id)

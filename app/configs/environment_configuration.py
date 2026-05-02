@@ -33,6 +33,11 @@ class EnvironmentConfiguration(BaseSettings):
     RQ_LIGHT_RESULT_TTL: int = int(os.getenv("RQ_LIGHT_RESULT_TTL", 300))
     RQ_LIGHT_WORKERS: int = int(os.getenv("RQ_LIGHT_WORKERS", 4))
 
+    # RQ Scheduler Configuration
+    ENABLE_SIMULATION_ARRIVAL_CHECK_SCHEDULE: bool = os.getenv("ENABLE_SIMULATION_ARRIVAL_CHECK_SCHEDULE", "true").lower() == "true"
+    SIMULATION_ARRIVAL_CHECK_SCHEDULE_INTERVAL_SECONDS: int = int(os.getenv("SIMULATION_ARRIVAL_CHECK_SCHEDULE_INTERVAL_SECONDS", 300))
+    SIMULATION_ARRIVAL_CHECK_SCHEDULE_QUEUE: str = os.getenv("SIMULATION_ARRIVAL_CHECK_SCHEDULE_QUEUE", "light")
+
     # FastAPI (Health checks only)
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
     API_PORT: int = int(os.getenv("API_PORT", 8000))

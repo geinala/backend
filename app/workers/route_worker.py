@@ -10,6 +10,8 @@ from app.repositories.node_repository import NodeRepository
 from app.repositories.vehicle_repository import VehicleRepository
 from app.repositories.route_repository import RouteRepository
 from app.lib.logging.logging import get_logger
+from app.services.realtime_event_service import schedule_vehicle_arrival_events
+from app.workers.events_worker import emit_route_initialized_event
 
 logger = get_logger()
 
@@ -38,9 +40,13 @@ async def generate_routes(simulation_id: str, depart_at: str | None = None):
 
         wide_event["stage"] = "generating_routes"
         
-        await route_service.generate_routes(simulation_id, depart_at)
+        arrival_schedules = await route_service.generate_routes(simulation_id, depart_at)
+
+        scheduled_count = schedule_vehicle_arrival_events(arrival_schedules)
+        emit_route_initialized_event(simulation_id, scheduled_count)
         
         wide_event["status"] = "success"
+        wide_event["arrival_events_scheduled"] = scheduled_count
         wide_event["duration_ms"] = (time.time() - start_time) * 1000
         logger.info(wide_event)
         

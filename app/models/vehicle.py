@@ -1,8 +1,9 @@
 import uuid
 from typing import TYPE_CHECKING
+from datetime import datetime
 
 from pydantic import BaseModel
-from sqlalchemy import UUID, Boolean, Float, ForeignKey, String, Integer
+from sqlalchemy import UUID, Boolean, Float, ForeignKey, String, Integer, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.lib.db import Base
 
@@ -30,6 +31,14 @@ class VehicleRoute(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     total_distance_in_meters: Mapped[int] = mapped_column(Integer, nullable=False)
     total_time_in_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    reoptimized_from_route_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey('vehicle_routes.id'),
+        nullable=True,
+    )
+    trigger_node_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('nodes.id'), nullable=True)
+    triggered_by_traffic: Mapped[bool] = mapped_column(Boolean, nullable=True, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 class CreateVehicleRoute(BaseModel):
     solution_id: int
@@ -38,3 +47,6 @@ class CreateVehicleRoute(BaseModel):
     is_active: bool
     total_distance_in_meters: int
     total_time_in_seconds: int
+    reoptimized_from_route_id: int | None = None
+    trigger_node_id: int | None = None
+    triggered_by_traffic: bool = False

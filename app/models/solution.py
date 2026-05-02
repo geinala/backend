@@ -1,6 +1,8 @@
+import uuid
 
-from pydantic.v1 import BaseModel
-from sqlalchemy import Integer, String, ForeignKey, Float
+from pydantic import BaseModel
+from sqlalchemy import Integer, ForeignKey, Float
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.lib.db import Base
@@ -9,7 +11,7 @@ class Solution(Base):
     __tablename__ = "solutions"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    simulation_id: Mapped[str] = mapped_column(String, ForeignKey("simulations.id"), nullable=False)
+    simulation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("simulations.id"), nullable=False)
     vehicle_id: Mapped[int] = mapped_column(Integer, ForeignKey("vehicles.id"), nullable=False)
     routes: Mapped[list[int]] = mapped_column(JSONB, nullable=False)  # Array of node indices representing the route
     demand_in_kilograms: Mapped[float] = mapped_column(Float, nullable=False)  # Total demand served by this vehicle

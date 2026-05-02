@@ -38,7 +38,7 @@ class MatrixRepository:
             destination_start_index=data.destination_start_index,
             destination_end_index=data.destination_end_index,
             tomtom_job_id=data.tomtom_job_id,
-            status=data.status.value,
+            status=data.status,
         )
         self.db.add(batch)
         self.db.commit()
@@ -54,7 +54,7 @@ class MatrixRepository:
                 destination_start_index=data.destination_start_index,
                 destination_end_index=data.destination_end_index,
                 tomtom_job_id=data.tomtom_job_id,
-                status=data.status.value,
+                status=data.status,
             )
             for data in insert_data
         ]
@@ -101,7 +101,7 @@ class MatrixRepository:
     def has_failed_batches(self, simulation_id: str) -> bool:
         return self.db.query(MatrixBatch).filter(
             MatrixBatch.simulation_id == simulation_id,
-            MatrixBatch.status == MatrixBatchStatusEnum.FAILED
+            MatrixBatch.status == MatrixBatchStatusEnum.failed
         ).first() is not None
 
     def delete_all_batches_and_results(self, simulation_id: str) -> None:

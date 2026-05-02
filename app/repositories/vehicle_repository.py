@@ -17,7 +17,10 @@ class VehicleRepository:
                 route_version=route.route_version,
                 is_active=route.is_active,
                 total_distance_in_meters=route.total_distance_in_meters,
-                total_time_in_seconds=route.total_time_in_seconds
+                total_time_in_seconds=route.total_time_in_seconds,
+                reoptimized_from_route_id=route.reoptimized_from_route_id,
+                trigger_node_id=route.trigger_node_id,
+                triggered_by_traffic=route.triggered_by_traffic,
             )
             for route in vehicle_routes
         ]

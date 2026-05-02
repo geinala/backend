@@ -23,7 +23,8 @@ async def get_solution(simulation_id: str):
                 vehicle_repository = VehicleRepository(next(get_db())),
                 node_repository = NodeRepository(next(get_db())),
                 solution_repository = SolutionRepository(next(get_db())
-                )
+                ),
+                simulation_repository=SimulationRepository(next(get_db())),
             )
             
             await solver_service.solve(simulation_id)

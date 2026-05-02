@@ -91,6 +91,7 @@ class RoutingPayload(TypedDict):
     computeTravelTimeFor: str
     departAt: str | None
     sectionType: list[str]
+    routeType: str
 
 class TomTomService:
     BASE_URL = "https://api.tomtom.com/routing/matrix/2/async"
@@ -106,11 +107,12 @@ class TomTomService:
             "traffic": True,
             "avoid": ["tollRoads", "ferries"],
             "travelMode": "motorcycle",
-            "vehicleMaxSpeed": 100,
+            "vehicleMaxSpeed": 60,
             "routeRepresentation": "encodedPolyline",
             "computeTravelTimeFor": "all",
             "departAt": depart_at,
             "sectionType": ["travelMode", "traffic"],
+            "routeType": "fastest"
         }
         
         params: list[tuple[str, str | int | float]] = [
@@ -121,6 +123,7 @@ class TomTomService:
             ("vehicleMaxSpeed", options["vehicleMaxSpeed"]),
             ("routeRepresentation", options["routeRepresentation"]),
             ("computeTravelTimeFor", options["computeTravelTimeFor"]),
+            ("routeType", options["routeType"]),
         ]
 
         params.extend(("avoid", avoid_value) for avoid_value in options["avoid"])
@@ -157,7 +160,7 @@ class TomTomService:
                 "routeType": "fastest",
                 "traffic": "historical",
                 "travelMode": "car",
-                "vehicleMaxSpeed": 100,
+                "vehicleMaxSpeed": 60,
                 "vehicleWeight": 120,
                 "vehicleAxleWeight": 120,
                 "vehicleLength": 2,

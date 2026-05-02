@@ -6,6 +6,7 @@ from app.models.vehicle import Vehicle
 from app.repositories.node_repository import NodeRepository
 from app.repositories.vehicle_repository import VehicleRepository
 from app.repositories.solution_repository import SolutionRepository
+from app.repositories.simulation_repository import SimulationRepository
 from app.services.matrix_service import MatrixService
 
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
@@ -26,12 +27,14 @@ class SolverService:
                  matrix_service: MatrixService, 
                  vehicle_repository: VehicleRepository, 
                  node_repository: NodeRepository,
-                 solution_repository: SolutionRepository
+                 solution_repository: SolutionRepository,
+                 simulation_repository: SimulationRepository,
                  ):
         self.matrix_service = matrix_service
         self.vehicle_repository = vehicle_repository
         self.node_repository = node_repository
         self.solution_repository = solution_repository
+        self.simulation_repository = simulation_repository
 
     async def solve(self, simulation_id: str):
         time_matrix = await self.matrix_service.build_time_matrix(simulation_id)
@@ -72,6 +75,15 @@ class SolverService:
                 ))
                 
             await self.solution_repository.bulk_insert_solutions(solutions)
+
+            await self.simulation_repository.update_simulation_fields(
+                simulation_id,
+                {
+                    "total_demand_in_kilograms": sum(solution.demand_in_kilograms for solution in solutions),
+                    "total_vehicles": len(solutions),
+                    "total_active_vehicles": len(solutions),
+                },
+            )
             
         else:
             raise Exception("No solution found for the given optimization problem.")
@@ -93,6 +105,9 @@ class SolverService:
                 previous_index = index
                 index = solution.Value(routing.NextVar(index))
                 route_dist += routing.GetArcCostForVehicle(previous_index, index, vehicle_index)
+            
+            # Add return to depot
+            route_nodes.append(manager.IndexToNode(index))
         
             routes.append(Route(
                 vehicle_id=vehicle.id,
@@ -128,29 +143,61 @@ class SolverService:
             to_node = manager.IndexToNode(to_index)
             
             time_travel = time_matrix[from_node][to_node]
-            service_time = 300  # Fixed service time of 5 minutes (300 seconds) at each node
+            service_time = 300  # 5 menit
             
             return time_travel + service_time
         
+        # === COST FUNCTION ===
         transit_callback_index = routing.RegisterTransitCallback(time_callback)
         routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
         
+        # === CAPACITY CONSTRAINT ===
         demand_callback_index = routing.RegisterUnaryTransitCallback(demand_callback)
         routing.AddDimensionWithVehicleCapacity(
             demand_callback_index,
-            0,  # null capacity slack
-            vehicle_capacities,  # vehicle maximum capacities
-            True,  # start cumul to zero 
+            0,
+            vehicle_capacities,
+            True,
             'Capacity'
         )
         
+        # === TIME DIMENSION (JAM KERJA) ===
         routing.AddDimension(
             transit_callback_index,
-            0,  # no slack
-            28800,  # maximum time per vehicle (8 hours in seconds)
-            True,  # start cumul to zero
+            0,          # no waiting slack
+            28800,      # 8 jam (09:00 - 17:00)
+            True,
             'Time'
         )
+        
+        time_dimension = routing.GetDimensionOrDie('Time')
+        
+        # === ⏰ JAM KERJA: 09:00 - 17:00 ===
+        # 09:00 = 0 detik
+        # 17:00 = 28800 detik
+        for vehicle_id in range(routing.vehicles()):
+            start_index = routing.Start(vehicle_id)
+            end_index = routing.End(vehicle_id)
+            
+            # harus mulai tepat jam 09:00
+            time_dimension.CumulVar(start_index).SetRange(0, 0)
+            
+            # harus selesai sebelum jam 17:00
+            time_dimension.CumulVar(end_index).SetRange(0, 28800)
+        
+        # === ⚖️ BALANCING (INI KUNCI BIAR GA TIMPANG) ===
+        time_dimension.SetGlobalSpanCostCoefficient(100)
+        
+        # === OPTIONAL: SOFT LIMIT BIAR LEBIH REALISTIS ===
+        for vehicle_id in range(routing.vehicles()):
+            end_index = routing.End(vehicle_id)
+            
+            # idealnya selesai <= 7 jam (25200 detik)
+            time_dimension.SetCumulVarSoftUpperBound(
+                end_index,
+                25200,
+                1000  # penalty
+            )
     
     def _create_routing_model(self, num_vehicles: int, length_of_time_matrix: int, depot_index: int) -> tuple[pywrapcp.RoutingIndexManager, pywrapcp.RoutingModel]:
         manager = pywrapcp.RoutingIndexManager(

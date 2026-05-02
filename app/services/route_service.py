@@ -1,7 +1,7 @@
 from datetime import datetime
 import asyncio
 
-from app.models.route import CreateRouteLeg
+from app.models.route import CreateRouteLeg, RouteStatusEnum
 from app.models.vehicle import CreateVehicleRoute
 from app.repositories.route_repository import RouteRepository
 from app.repositories.vehicle_repository import VehicleRepository
@@ -10,6 +10,7 @@ from app.repositories.solution_repository import SolutionRepository
 from app.repositories.node_repository import NodeRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.models.simulation import SimulationStatusEnum
+from app.services.realtime_event_service import VehicleArrivalSchedule
 
 class RouteService:
     ROUTE_GENERATION_SUBMISSION_DELAY_IN_SECONDS = 2
@@ -29,11 +30,11 @@ class RouteService:
         self.route_repository = route_repository
         self.simulation_repository = simulation_repository
 
-    async def generate_routes(self, simulation_id: str, depart_at: str | None = None) -> None:
+    async def generate_routes(self, simulation_id: str, depart_at: str | None = None) -> list[VehicleArrivalSchedule]:
         solutions = await self.solution_repository.get_solutions_by_simulation_id(simulation_id)
 
         if not solutions:
-            return
+            return []
 
         nodes = self.node_repository.get_nodes_by_simulation_id(simulation_id)
 
@@ -79,6 +80,7 @@ class RouteService:
         vehicle_route_objects = self.vehicle_repository.bulk_insert_vehicle_routes(vehicle_routes)
 
         route_legs: list[CreateRouteLeg] = []
+        arrival_schedules: list[VehicleArrivalSchedule] = []
 
         for i, solution in enumerate(solutions):
 
@@ -86,6 +88,7 @@ class RouteService:
             routes = tomtom_responses[i]
 
             legs = routes["routes"][0]["legs"]
+            cumulative_travel_time_seconds = 0
 
             for seq, leg in enumerate(legs):
                 origin_node = node_map.get(solution.routes[seq])
@@ -95,12 +98,15 @@ class RouteService:
                     continue
 
                 summary = leg["summary"]
+                cumulative_travel_time_seconds += int(summary["travelTimeInSeconds"])
 
                 route_legs.append(
                     CreateRouteLeg(
                         vehicle_route_id=vehicle_route.id,
-                        origin_node_id=origin_node.id,
-                        destination_node_id=destination_node.id,
+                        origin_latitude=origin_node.latitude,
+                        origin_longitude=origin_node.longitude,
+                        destination_latitude=destination_node.latitude,
+                        destination_longitude=destination_node.longitude,
                         sequence=seq,
                         encoded_polyline=leg["encodedPolyline"],
                         encoded_polyline_precision=leg["encodedPolylinePrecision"],
@@ -112,12 +118,38 @@ class RouteService:
                         arrival_time=datetime.fromisoformat(summary["arrivalTime"].replace("Z", "+00:00")),
                         no_traffic_travel_time_in_seconds=summary["noTrafficTravelTimeInSeconds"],
                         historic_traffic_travel_time_in_seconds=summary["historicTrafficTravelTimeInSeconds"],
-                        live_traffic_incidents_travel_time_in_seconds=summary["liveTrafficIncidentsTravelTimeInSeconds"]
+                        live_traffic_incidents_travel_time_in_seconds=summary["liveTrafficIncidentsTravelTimeInSeconds"],
+                        route_status=(
+                            RouteStatusEnum.running
+                            if seq == 0
+                            else RouteStatusEnum.planned
+                        )
                     )
                 )
 
+                arrival_schedules.append(
+                    {
+                        "simulation_id": simulation_id,
+                        "vehicle_id": int(solution.vehicle_id),
+                        "node_id": int(destination_node.id),
+                        "eta_seconds": cumulative_travel_time_seconds,
+                    }
+                )
+
         self.route_repository.bulk_insert_route_legs(route_legs)
+
+        await self.simulation_repository.update_simulation_fields(
+            simulation_id,
+            {
+                "total_distance_in_meters": sum(route.total_distance_in_meters for route in vehicle_routes),
+                "total_duration_in_seconds": sum(route.total_time_in_seconds for route in vehicle_routes),
+                "total_vehicles": len(vehicle_routes),
+                "total_active_vehicles": sum(1 for route in vehicle_routes if route.is_active),
+            },
+        )
         
         await self.simulation_repository.update_simulation_status(simulation_id, SimulationStatusEnum.running)
 
         self.vehicle_repository.db.commit()
+
+        return arrival_schedules
