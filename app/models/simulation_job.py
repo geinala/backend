@@ -29,6 +29,8 @@ class SimulationJobFileValidationStatusEnum(enum.Enum):
     uploaded = 'uploaded'
     validating = 'validating'
     validated = 'validated'
+    reviewing = 'reviewing'
+    completed = 'completed'
     failed = 'failed'
 
 class SimulationJob(Base):

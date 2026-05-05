@@ -8,8 +8,8 @@ from app.constants.job_prefixes import JOB_PREFIXES_ENUM
 from app.lib.logging.logging import get_logger
 from app.lib.response_formatter import ResponseFormatter
 from app.repositories.simulation_job_repository import SimulationJobRepository
+from app.repositories.simulation_uploaded_row_repository import SimulationUploadedRowRepository
 from app.repositories.node_repository import NodeRepository
-from app.repositories.simulation_job_uploaded_file_error_repository import SimulationJobUploadedFileErrorRepository
 from app.services.job_service import enqueue_job
 from app.services.minio_service import MinioService
 from app.services.simulation_service import SimulationService
@@ -23,8 +23,8 @@ class SimulationController:
         self.db = db
         self.simulation_service = SimulationService(
             minio_service=MinioService(minio_client=minio_client),
-            simulation_job_uploaded_file_error_repository=SimulationJobUploadedFileErrorRepository(db),
             simulation_job_repository=SimulationJobRepository(db),
+            simulation_uploaded_row_repository=SimulationUploadedRowRepository(db),
             node_repository=NodeRepository(db)
         )
         

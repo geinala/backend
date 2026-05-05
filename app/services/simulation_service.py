@@ -1,5 +1,6 @@
+import json
 import time as time_module
-from datetime import datetime, timezone 
+from datetime import datetime, timezone
 from fastapi.exceptions import ValidationException
 
 # from app.models.node import GroupedNodeData, Node, NodeDetailCreate
@@ -7,12 +8,12 @@ from app.repositories.simulation_job_repository import SimulationJobRepository
 from app.services.file_service import FileService
 from app.services.minio_service import MinioService
 from app.repositories.node_repository import NodeRepository
+from app.repositories.simulation_uploaded_row_repository import SimulationUploadedRowRepository
 from app.lib.logging.logging import get_logger
 from app.models.error_report import ValidationError, CSVValidationResult
 from app.models.simulation_job import SimulationJobStatusEnum, SimulationJobFileValidationStatusEnum
 from app.schemas.simulation_job_schema import SimulationJobUpdateData
-from app.schemas.simulation_job_uploaded_file_error_schema import SimulationJobUploadedFileErrorCreate
-from app.repositories.simulation_job_uploaded_file_error_repository import SimulationJobUploadedFileErrorRepository
+from app.schemas.simulation_job_uploaded_row_schema import CreateSimulationUploadedRowSchema
 
 logger = get_logger(__name__)
 
@@ -21,13 +22,13 @@ class SimulationService:
         self,
         minio_service: MinioService,
         simulation_job_repository: SimulationJobRepository,
-        simulation_job_uploaded_file_error_repository: SimulationJobUploadedFileErrorRepository,
+        simulation_uploaded_row_repository: SimulationUploadedRowRepository,
         node_repository: NodeRepository
     ):
         self.minio_service = minio_service
         self.node_repository = node_repository
         self.simulation_job_repository = simulation_job_repository
-        self.simulation_job_uploaded_file_error_repository = simulation_job_uploaded_file_error_repository
+        self.simulation_uploaded_row_repository = simulation_uploaded_row_repository
 
     async def process_files(self, simulation_job_id: str):
         try:
@@ -36,8 +37,16 @@ class SimulationService:
             
             await self._validate_dataset(simulation_job_id=simulation_job_id, field_names=fieldnames, rows=rows)
             # await self._create_nodes_from_dataset(simulation_job_id=simulation_job_id, rows=rows)
+
+            await self.simulation_job_repository.update_simulation_job(
+                simulation_job_id=simulation_job_id,
+                update_data=SimulationJobUpdateData(
+                    updated_at=datetime.now(timezone.utc),
+                )
+            )
             
         except Exception as e:
+            logger.error("Error occurred while processing files", extra={"simulation_job_id": simulation_job_id, "error": str(e)})
             raise e
 
     async def _validate_dataset(self, simulation_job_id: str, field_names: list[str], rows: list[dict[str, str]]) -> dict[str, object]:
@@ -60,29 +69,16 @@ class SimulationService:
             )
             
             errors = await self._validate_csv_content(field_names=field_names, rows=rows, simulation_job_id=simulation_job_id)
+            await self._store_uploaded_rows(
+                simulation_job_id=simulation_job_id,
+                rows=rows,
+                errors=errors["errors"],
+            )
             
             wide_event["total_rows"] = errors["row_count"]
             wide_event["error_count"] = len(errors["errors"])
+            wide_event["stored_rows"] = len(rows)
             
-            error_report_path = f"error-reports/simulation-{simulation_job_id}-errors.csv"
-            
-            if errors["errors"]:
-                error_reports: list[SimulationJobUploadedFileErrorCreate] = [
-                    SimulationJobUploadedFileErrorCreate(
-                        simulation_job_id=simulation_job_id,
-                        row_number=err.row_number,
-                        error_message=err.error_message,
-                        created_at=datetime.now(timezone.utc),
-                        field_name=err.field_name,
-                        invalid_value=err.invalid_value,
-                    )
-                    for err in errors["errors"]
-                ]
-                
-                await self.simulation_job_uploaded_file_error_repository.insert_uploaded_file_errors(
-                    errors=error_reports
-                )
-                
             wide_event["status"] = "success"
             wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
             logger.info(wide_event)
@@ -92,7 +88,7 @@ class SimulationService:
                 "total_rows": errors["row_count"],
                 "error_count": len(errors["errors"]),
                 "is_valid": len(errors["errors"]) == 0,
-                "error_report_path": error_report_path if errors["errors"] else None,
+                "stored_rows": len(rows),
             }
             
         except Exception as e:
@@ -312,12 +308,6 @@ class SimulationService:
                     
             invalid_row_count = len(set(e.row_number for e in errors))
             
-            final_status = (
-                SimulationJobStatusEnum.failed
-                if invalid_row_count > 0
-                else SimulationJobStatusEnum.processing
-            )
-            
             await self.simulation_job_repository.update_simulation_job(
                 simulation_job_id=simulation_job_id,
                 update_data=SimulationJobUpdateData(
@@ -325,10 +315,9 @@ class SimulationService:
                     processed_rows=total_rows,
                     invalid_rows=invalid_row_count,
                     valid_rows=row_count - invalid_row_count,
-                    status=final_status,
-                    file_validation_status=SimulationJobFileValidationStatusEnum.validated if invalid_row_count == 0 else SimulationJobFileValidationStatusEnum.failed,
+                    file_validation_status=SimulationJobFileValidationStatusEnum.completed if invalid_row_count == 0 else SimulationJobFileValidationStatusEnum.reviewing,
                     updated_at=datetime.now(timezone.utc),
-                    validation_completed_at=datetime.now(timezone.utc)
+                    current_step=1 if invalid_row_count > 0 else 2,
                 )
             )
             
@@ -347,14 +336,15 @@ class SimulationService:
             await self.simulation_job_repository.update_simulation_job(
                 simulation_job_id=simulation_job_id,
                 update_data=SimulationJobUpdateData(
-                    status=SimulationJobStatusEnum.failed,
-                    updated_at=datetime.now(timezone.utc)
+                    updated_at=datetime.now(timezone.utc),
+                    file_validation_status=SimulationJobFileValidationStatusEnum.failed,
+                    validation_completed_at=datetime.now(timezone.utc)
                 )
             )
             raise ValueError(f"Failed to validate CSV: {str(e)}")
     
     def _get_missing_required_fields(self, fieldnames: list[str]) -> set[str]:
-        required_fields = {
+        REQUIRED_FIELDS = {
             "Nosi",
             "Courier",
             "Customer_Name",
@@ -365,7 +355,7 @@ class SimulationService:
             "End_Datetime",
         }
 
-        return required_fields - set(fieldnames or [])
+        return REQUIRED_FIELDS - set(fieldnames or [])
 
     def _validate_row(
         self,
@@ -375,253 +365,195 @@ class SimulationService:
     ) -> list[ValidationError]:
         errors: list[ValidationError] = []
 
-        # Nosi
-        if not row.get("Nosi", "").strip():
-            logger.info({
-                "event_type": "validation_error",
-                "simulation_job_id": simulation_job_id,
-                "row_number": row_number,
-                "field_name": "Nosi",
-                "invalid_value": "[empty]",
-                "error_message": "Nosi is required and cannot be empty",
-            })
-            errors.append(
-                ValidationError(
-                    row_number=row_number,
-                    field_name="Nosi",
-                    invalid_value="[empty]",
-                    error_message="Nosi is required and cannot be empty",
-                )
-            )
+        # Required fields
+        self._validate_required(row, "Nosi", row_number, simulation_job_id, errors)
+        self._validate_required(row, "Courier", row_number, simulation_job_id, errors)
+        self._validate_required(row, "Customer_Name", row_number, simulation_job_id, errors)
+        self._validate_required(row, "Address", row_number, simulation_job_id, errors)
+        self._validate_required(row, "City", row_number, simulation_job_id, errors)
+        weight_str = self._validate_required(row, "Weight", row_number, simulation_job_id, errors)
+        start_str = self._validate_required(row, "Start_Datetime", row_number, simulation_job_id, errors)
+        end_str = self._validate_required(row, "End_Datetime", row_number, simulation_job_id, errors)
 
-        # Courier
-        if not row.get("Courier", "").strip():
-            logger.info({
-                "event_type": "validation_error",
-                "simulation_job_id": simulation_job_id,
-                "row_number": row_number,
-                "field_name": "Courier",
-                "invalid_value": "[empty]",
-                "error_message": "Courier is required and cannot be empty",
-            })
-            errors.append(
-                ValidationError(
-                    row_number=row_number,
-                    field_name="Courier",
-                    invalid_value="[empty]",
-                    error_message="Courier is required and cannot be empty",
+        # Weight validation
+        weight = None
+        if weight_str:
+            weight = self._parse_float(weight_str)
+            if weight is None:
+                self._add_error(errors, row_number, "Weight", weight_str, "Weight must be a valid number", simulation_job_id)
+            elif weight < 0:
+                self._add_error(errors, row_number, "Weight", weight_str, "Weight cannot be negative", simulation_job_id)
+
+        # Datetime validation
+        start_dt = None
+        end_dt = None
+
+        if start_str:
+            start_dt = self._parse_datetime(start_str)
+            if not start_dt:
+                self._add_error(
+                    errors,
+                    row_number,
+                    "Start_Datetime",
+                    start_str,
+                    "Invalid format (ISO 8601 or DD/MM/YYYY HH:MM[:SS])",
+                    simulation_job_id,
                 )
-            )
-            
-        # Customer_Name
-        if not row.get("Customer_Name", "").strip():
-            logger.info({
-                "event_type": "validation_error",
-                "simulation_job_id": simulation_job_id,
-                "row_number": row_number,
-                "field_name": "Customer_Name",
-                "invalid_value": "[empty]",
-                "error_message": "Customer_Name is required and cannot be empty",
-            })
-            errors.append(
-                ValidationError(
-                    row_number=row_number,
-                    field_name="Customer_Name",
-                    invalid_value="[empty]",
-                    error_message="Customer_Name is required and cannot be empty",
+
+        if end_str:
+            end_dt = self._parse_datetime(end_str)
+            if not end_dt:
+                self._add_error(
+                    errors,
+                    row_number,
+                    "End_Datetime",
+                    end_str,
+                    "Invalid format (ISO 8601 or DD/MM/YYYY HH:MM[:SS])",
+                    simulation_job_id,
                 )
-            )
-            
-        # Address
-        if not row.get("Address", "").strip():
-            logger.info({
-                "event_type": "validation_error",
-                "simulation_job_id": simulation_job_id,
-                "row_number": row_number,
-                "field_name": "Address",
-                "invalid_value": "[empty]",
-                "error_message": "Address is required and cannot be empty",
-            })
-            errors.append(
-                ValidationError(
-                    row_number=row_number,
-                    field_name="Address",
-                    invalid_value="[empty]",
-                    error_message="Address is required and cannot be empty",
+
+        # Cross-field validation
+        if start_dt and end_dt:
+            if start_dt > end_dt:
+                self._add_error(
+                    errors,
+                    row_number,
+                    "Start_Datetime",
+                    start_str or "",
+                    "Start_Datetime must be earlier than End_Datetime",
+                    simulation_job_id,
                 )
-            )
-            
-        # City
-        if not row.get("City", "").strip():
-            logger.info({
-                "event_type": "validation_error",
-                "simulation_job_id": simulation_job_id,
-                "row_number": row_number,
-                "field_name": "City",
-                "invalid_value": "[empty]",
-                "error_message": "City is required and cannot be empty",
-            })
-            errors.append(
-                ValidationError(
-                    row_number=row_number,
-                    field_name="City",
-                    invalid_value="[empty]",
-                    error_message="City is required and cannot be empty",
-                )
-            )
-            
-        # Weight
-        weight_str = row.get("Weight", "").strip()
-        if not weight_str:
-            logger.info({
-                "event_type": "validation_error",
-                "simulation_job_id": simulation_job_id,
-                "row_number": row_number,
-                "field_name": "Weight",
-                "invalid_value": "[empty]",
-                "error_message": "Weight is required and cannot be empty",
-            })
-            errors.append(
-                ValidationError(
-                    row_number=row_number,
-                    field_name="Weight",
-                    invalid_value="[empty]",
-                    error_message="Weight is required and cannot be empty",
-                )
-            )
-        else:
-            try:
-                weight = float(weight_str)
-                if weight < 0:
-                    logger.info({
-                        "event_type": "validation_error",
-                        "simulation_job_id": simulation_job_id,
-                        "row_number": row_number,
-                        "field_name": "Weight",
-                        "invalid_value": weight_str,
-                        "error_message": "Weight cannot be negative",
-                    })
-                    errors.append(
-                        ValidationError(
-                            row_number=row_number,
-                            field_name="Weight",
-                            invalid_value=weight_str,
-                            error_message="Weight cannot be negative",
-                        )
-                    )
-            except ValueError:
-                logger.info({
-                    "event_type": "validation_error",
-                    "simulation_job_id": simulation_job_id,
-                    "row_number": row_number,
-                    "field_name": "Weight",                    "invalid_value": weight_str,
-                    "error_message": "Weight must be a valid number",
-                })
-                errors.append(
-                    ValidationError(
-                        row_number=row_number,
-                        field_name="Weight",
-                        invalid_value=weight_str,
-                        error_message="Weight must be a valid number",
-                    )
-                )
-                
-        # Start_Datetime
-        start_datetime_str = row.get("Start_Datetime", "").strip()
-        if not start_datetime_str:  
-            logger.info({
-                    "event_type": "validation_error",
-                    "simulation_job_id": simulation_job_id,
-                    "row_number": row_number,
-                    "field_name": "Start_Datetime",
-                    "invalid_value": "[empty]",
-                    "error_message": "Start_Datetime is required and cannot be empty",
-                })
-            errors.append(
-                ValidationError(
-                    row_number=row_number,
-                    field_name="Start_Datetime",
-                    invalid_value="[empty]",
-                    error_message="Start_Datetime is required and cannot be empty",
-                )
-            )
-        else:
-            if not self._is_valid_datetime(start_datetime_str):
-                logger.info({
-                    "event_type": "validation_error",
-                    "simulation_job_id": simulation_job_id,
-                    "row_number": row_number,
-                    "field_name": "Start_Datetime",
-                    "invalid_value": start_datetime_str,
-                    "error_message": "Start_Datetime must be in valid format (ISO 8601 or DD/MM/YYYY HH:MM:SS)",
-                })
-                errors.append(
-                    ValidationError(
-                        row_number=row_number,
-                        field_name="Start_Datetime",
-                        invalid_value=start_datetime_str,
-                        error_message="Start_Datetime must be in valid format (ISO 8601 or DD/MM/YYYY HH:MM:SS)",
-                    )
-                )
-                
-        # End_Datetime
-        end_datetime_str = row.get("End_Datetime", "").strip()
-        if not end_datetime_str:
-            logger.info({
-                "event_type": "validation_error",
-                "simulation_job_id": simulation_job_id,
-                "row_number": row_number,
-                "field_name": "End_Datetime",
-                "invalid_value": "[empty]",
-                "error_message": "End_Datetime is required and cannot be empty",
-            })
-            errors.append(
-                ValidationError(
-                    row_number=row_number,
-                    field_name="End_Datetime",
-                    invalid_value="[empty]",
-                    error_message="End_Datetime is required and cannot be empty",
-                )
-            )
-        else:
-            if not self._is_valid_datetime(end_datetime_str):
-                logger.info({
-                    "event_type": "validation_error",
-                    "simulation_job_id": simulation_job_id,
-                    "row_number": row_number,
-                    "field_name": "End_Datetime",
-                    "invalid_value": end_datetime_str,
-                    "error_message": "End_Datetime must be in valid format (ISO 8601 or DD/MM/YYYY HH:MM:SS)",
-                })
-                errors.append(
-                    ValidationError(
-                        row_number=row_number,
-                        field_name="End_Datetime",
-                        invalid_value=end_datetime_str,
-                        error_message="End_Datetime must be in valid format (ISO 8601 or DD/MM/YYYY HH:MM:SS)",
-                    )
-                )
-        
 
         return errors
 
-    def _is_valid_datetime(self, datetime_value: str) -> bool:
+    def _validate_required(
+        self,
+        row: dict[str, str],
+        field: str,
+        row_number: int,
+        simulation_job_id: str,
+        errors: list[ValidationError],
+    ) -> str | None:
+        value = (row.get(field) or "").strip()
+        if not value:
+            self._add_error(
+                errors,
+                row_number,
+                field,
+                "[empty]",
+                f"{field} is required and cannot be empty",
+                simulation_job_id,
+            )
+            return None
+        return value
+
+
+    def _parse_float(self, value: str | None) -> float | None:
+        if value is None:
+            return None
+
         try:
-            datetime.fromisoformat(datetime_value)
-            return True
+            return float(value)
+        except ValueError:
+            return None
+
+    def _parse_datetime(self, value: str | None) -> datetime | None:
+        if value is None:
+            return None
+
+        # ISO 8601
+        try:
+            parsed = datetime.fromisoformat(value)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
         except ValueError:
             pass
 
-        accepted_formats = [
+        formats = [
             "%d/%m/%Y %H:%M:%S",
             "%d/%m/%Y %H:%M",
         ]
 
-        for datetime_format in accepted_formats:
+        for fmt in formats:
             try:
-                datetime.strptime(datetime_value, datetime_format)
-                return True
+                parsed = datetime.strptime(value, fmt)
+                return parsed.replace(tzinfo=timezone.utc)
             except ValueError:
                 continue
 
-        return False
+        return None
+
+    async def _store_uploaded_rows(
+        self,
+        simulation_job_id: str,
+        rows: list[dict[str, str]],
+        errors: list[ValidationError],
+    ) -> None:
+        errors_by_row: dict[int, list[ValidationError]] = {}
+        for error in errors:
+            errors_by_row.setdefault(error.row_number, []).append(error)
+
+        uploaded_rows: list[CreateSimulationUploadedRowSchema] = []
+
+        for index, row in enumerate(rows):
+            row_number = index + 2
+            row_errors = errors_by_row.get(row_number, [])
+            nosi = self._get_row_value(row, "Nosi")
+            courier = self._get_row_value(row, "Courier")
+            customer_name = self._get_row_value(row, "Customer_Name")
+            address = self._get_row_value(row, "Address")
+            city = self._get_row_value(row, "City")
+            weight_value = self._get_row_value(row, "Weight")
+            start_datetime_value = self._get_row_value(row, "Start_Datetime")
+            end_datetime_value = self._get_row_value(row, "End_Datetime")
+
+            uploaded_rows.append(
+                CreateSimulationUploadedRowSchema(
+                    simulation_job_id=simulation_job_id,
+                    nosi=nosi,
+                    courier=courier,
+                    customer_name=customer_name,
+                    address=address,
+                    city=city,
+                    weight=self._parse_float(weight_value),
+                    start_datetime=self._parse_datetime(start_datetime_value),
+                    end_datetime=self._parse_datetime(end_datetime_value),
+                    error_details=json.dumps(
+                        [error.to_dict() for error in row_errors],
+                        ensure_ascii=False,
+                    ),
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+
+        await self.simulation_uploaded_row_repository.insert_uploaded_rows(rows=uploaded_rows)
+
+    def _get_row_value(self, row: dict[str, str], field: str) -> str | None:
+        value = (row.get(field) or "").strip()
+        return value or None
+
+    def _add_error(
+        self,
+        errors: list[ValidationError],
+        row_number: int,
+        field: str,
+        value: str | None,
+        message: str,
+        simulation_job_id: str,
+    ) -> None:
+        logger.error("Validation error occurred", extra={
+            "event_type": "validation_error",
+            "simulation_job_id": simulation_job_id,
+            "row_number": row_number,
+            "field_name": field,
+            "invalid_value": value or "",
+            "error_message": message,
+        })
+
+        errors.append(
+            ValidationError(
+                row_number=row_number,
+                field_name=field,
+                invalid_value=value or "",
+                error_message=message,
+            )
+        )
