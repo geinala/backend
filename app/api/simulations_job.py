@@ -21,3 +21,15 @@ async def process_files(
 ):
     controller = SimulationController(db=db)
     return await controller.process_files(simulation_job_id=id)
+
+
+@router.post(
+    path="/{id}/cleaning",
+    summary="Clean uploaded rows for simulation"
+)
+async def clean_uploaded_rows(
+    id: str,
+    db: Session = Depends(get_db)
+):
+    controller = SimulationController(db=db)
+    return await controller.clean_uploaded_rows(simulation_job_id=id)

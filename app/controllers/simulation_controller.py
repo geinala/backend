@@ -15,6 +15,7 @@ from app.services.minio_service import MinioService
 from app.services.simulation_service import SimulationService
 from app.lib.minio import minio_client
 from app.workers.simulation_worker import process_files as process_simulation_files
+from app.workers.simulation_worker import clean_uploaded_rows as process_simulation_cleaning
 
 logger = get_logger(__name__)
 
@@ -64,3 +65,38 @@ class SimulationController:
             
             logger.error(wide_event)
             raise e
+
+    async def clean_uploaded_rows(self, simulation_job_id: str) -> JSONResponse:
+        start_time = time.time()
+        wide_event: dict[str, object] = {
+            "event_type": "clean_uploaded_rows_request",
+            "simulation_job_id": simulation_job_id,
+            "status": "processing",
+        }
+
+        try:
+            job = enqueue_job(
+                process_simulation_cleaning,
+                job_type=JobType.HEAVY,
+                job_prefix=JOB_PREFIXES_ENUM.SIMULATION_CLEANING_DATA,
+                simulation_job_id=simulation_job_id
+            )
+
+            wide_event["status"] = "success"
+            wide_event["job_id"] = job.id
+            wide_event["duration_ms"] = (time.time() - start_time) * 1000
+            logger.info(wide_event)
+
+            return ResponseFormatter.success_with_data(
+                data={"job_id": str(job.id)},
+                message="Cleaning uploaded rows has been enqueued for processing",
+                status_code=200,
+            )
+
+        except Exception as e:
+            wide_event["status"] = "failed"
+            wide_event["error"] = str(e)
+            wide_event["error_type"] = type(e).__name__
+            wide_event["duration_ms"] = (time.time() - start_time) * 1000
+            logger.error(wide_event)
+            raise
