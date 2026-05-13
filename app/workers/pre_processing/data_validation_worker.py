@@ -6,7 +6,7 @@ from app.lib.db import get_db
 
 logger = get_logger(__name__)
 
-async def process_files(simulation_job_id: str):
+async def process_files(simulation_job_id: str) -> dict[str, object]:
     job = get_current_job()
     start_time = time.time()
     

@@ -1,7 +1,6 @@
 import re
 import time as time_module
 from datetime import datetime, timezone
-from fastapi.exceptions import ValidationException
 
 from app.repositories.simulation_job_repository import SimulationJobRepository
 from app.repositories.simulation_uploaded_row_repository import SimulationUploadedRowRepository
@@ -12,6 +11,7 @@ from app.models.simulation_job import (
 )
 from app.schemas.simulation_job_schema import SimulationJobUpdateData
 from app.models.simulation_uploaded_row import ResolutionStatusEnum
+from app.models.simulation_job import SimulationJobStatusEnum
 
 logger = get_logger(__name__)
 
@@ -75,10 +75,9 @@ class DataCleaningService:
         self.simulation_job_repository = simulation_job_repository
         self.simulation_uploaded_row_repository = simulation_uploaded_row_repository
     
-    async def run(self, simulation_job_id: str) -> dict[str, object]:
+    async def run(self, simulation_job_id: str) -> dict[str, object] | None:
         start_time = time_module.time()
         cleaning_started_at = datetime.now(timezone.utc)
-        cleaning_started = False
         wide_event: dict[str, object] = {
             "event_type": "simulation_clean_uploaded_rows",
             "simulation_job_id": simulation_job_id,
@@ -89,36 +88,28 @@ class DataCleaningService:
             simulation_job = await self.simulation_job_repository.get_simulation_job_by_id(simulation_job_id)
 
             if not simulation_job:
-                raise ValidationException(errors=f"Simulation job with ID {simulation_job_id} not found.")
+                raise ValueError(f"Simulation job with ID {simulation_job_id} not found.")
 
             if simulation_job.file_validation_status != SimulationJobFileValidationStatusEnum.completed:
-                raise ValidationException(
-                    errors=(
-                        "Cleaning data can only be processed when "
-                        f"file_validation_status is completed. Current status: {simulation_job.file_validation_status.value}"
-                    )
-                )
+                raise ValueError(f"Cannot start cleaning process for simulation job {simulation_job_id} because file validation is not completed. Current status: {simulation_job.file_validation_status}")
 
             uploaded_rows = await self.simulation_uploaded_row_repository.get_uploaded_rows_by_simulation_job_id(
                 simulation_job_id=simulation_job_id
             )
 
             if not uploaded_rows:
-                raise ValidationException(
-                    errors=f"No uploaded rows found for simulation job {simulation_job_id}."
-                )
+                raise ValueError(f"No uploaded rows found for simulation job {simulation_job_id}. Cannot proceed with cleaning process.")
 
             await self.simulation_job_repository.update_simulation_job(
                 simulation_job_id=simulation_job_id,
                 update_data=SimulationJobUpdateData(
-                    cleaning_status=SimulationJobFileCleaningStatusEnum.cleaning,
+                    cleaning_status=SimulationJobFileCleaningStatusEnum.in_progress,
                     cleaning_started_at=cleaning_started_at,
                     cleaning_completed_at=None,
-                    progress_cleaning_percentage=0,
+                    cleaning_progress_percentage=0,
                     updated_at=datetime.now(timezone.utc),
                 ),
             )
-            cleaning_started = True
 
             cleaned_rows: list[dict[str, object]] = []
             total_rows = len(uploaded_rows)
@@ -132,10 +123,10 @@ class DataCleaningService:
                 cleaned_row: dict[str, object] = {
                     "id": row.id,
                     "normalized_address": prepared.get("cleaned"),
-                    "suggested_address": prepared.get("query") if prepared.get("address_type") != "unknown" else None,
-                    "final_address": prepared.get("query") if prepared.get("address_type") != "unknown" else None,
-                    "resolution_status": ResolutionStatusEnum.needed_review if prepared.get("address_type") == "unknown" else ResolutionStatusEnum.auto_solved,
-                    "resolution_source": "SYSTEM" if prepared.get("address_type") != "unknown" else None,
+                    "suggested_address": prepared.get("query"),
+                    "final_address": prepared.get("query"),
+                    "resolution_status": ResolutionStatusEnum.auto_solved,
+                    "resolution_source": "SYSTEM",
                 }
 
                 cleaned_rows.append(cleaned_row)
@@ -145,7 +136,7 @@ class DataCleaningService:
                     await self.simulation_job_repository.update_simulation_job(
                         simulation_job_id=simulation_job_id,
                         update_data=SimulationJobUpdateData(
-                            progress_cleaning_percentage=progress,
+                            cleaning_progress_percentage=progress,
                             updated_at=datetime.now(timezone.utc),
                         ),
                     )
@@ -158,7 +149,7 @@ class DataCleaningService:
                     cleaning_status=SimulationJobFileCleaningStatusEnum.completed,
                     cleaning_started_at=cleaning_started_at,
                     cleaning_completed_at=datetime.now(timezone.utc),
-                    progress_cleaning_percentage=100,
+                    cleaning_progress_percentage=100,
                     updated_at=datetime.now(timezone.utc),
                     current_step=3
                 )
@@ -169,19 +160,16 @@ class DataCleaningService:
             wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
             logger.info(wide_event)
 
-            return {
-                "simulation_job_id": simulation_job_id,
-                "processed_rows": len(cleaned_rows),
-            }
+            return {"simulation_job_id": simulation_job_id, "processed_rows": len(cleaned_rows)}
 
         except Exception as e:
-            if cleaning_started:
-                await self.simulation_job_repository.update_simulation_job(
-                    simulation_job_id=simulation_job_id,
-                    update_data=SimulationJobUpdateData(
-                        cleaning_status=SimulationJobFileCleaningStatusEnum.failed,
-                        cleaning_completed_at=datetime.now(timezone.utc),
-                        updated_at=datetime.now(timezone.utc),
+            await self.simulation_job_repository.update_simulation_job(
+                simulation_job_id=simulation_job_id,
+                update_data=SimulationJobUpdateData(
+                    cleaning_status=SimulationJobFileCleaningStatusEnum.failed,
+                    cleaning_completed_at=datetime.now(timezone.utc),
+                    status=SimulationJobStatusEnum.failed,
+                    updated_at=datetime.now(timezone.utc),
                     ),
                 )
             wide_event["status"] = "failed"
@@ -189,7 +177,7 @@ class DataCleaningService:
             wide_event["error_type"] = type(e).__name__
             wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
             logger.error(wide_event)
-            raise
+            raise e
 
     def _prepare_row_for_cleaning(self, address: str | None, city: str | None, default_city: str = "malang") -> dict[str, str | None]:
         cleaned = self._clean_text(address)

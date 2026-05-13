@@ -34,7 +34,7 @@ async def geocode_address(simulation_job_id: str):
         result = await geocode_service.run(simulation_job_id=simulation_job_id)
         
         wide_event["status"] = "success"
-        wide_event["processed_rows"] = result
+        wide_event["processed_rows"] = len(result) if result else 0
         wide_event["duration_ms"] = (time.time() - start_time) * 1000
 
         logger.info(wide_event)

@@ -36,7 +36,7 @@ class SimulationJobFileValidationStatusEnum(enum.Enum):
 
 class SimulationJobFileCleaningStatusEnum(enum.Enum):
     pending = 'pending'
-    cleaning = 'cleaning'
+    in_progress = 'in_progress'
     completed = 'completed'
     needed_review = 'needed_review'
     failed = 'failed'
@@ -56,22 +56,26 @@ class SimulationJob(Base):
     current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     file_path: Mapped[str] = mapped_column(String, nullable=False)
     file_validation_status: Mapped[SimulationJobFileValidationStatusEnum] = mapped_column(Enum(SimulationJobFileValidationStatusEnum, native_enum=False), default=SimulationJobFileValidationStatusEnum.uploaded, nullable=False)
-    total_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    valid_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    invalid_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    processed_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    progress_percentage: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    validation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    validation_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    progress_cleaning_percentage: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    file_total_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    file_valid_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    file_invalid_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    file_processed_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    file_progress_percentage: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    file_validation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    file_validation_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cleaning_total_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cleaning_processed_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cleaning_progress_percentage: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cleaning_status: Mapped[SimulationJobFileCleaningStatusEnum] = mapped_column(Enum(SimulationJobFileCleaningStatusEnum, native_enum=False), default=SimulationJobFileCleaningStatusEnum.pending, nullable=False)
     cleaning_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cleaning_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     geocoding_status: Mapped[SimulationGeocodingStatusEnum] = mapped_column(Enum(SimulationGeocodingStatusEnum, native_enum=False), default=SimulationGeocodingStatusEnum.pending, nullable=False)
     geocoding_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     geocoded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    progress_geocoding_percentage: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    estimated_completion_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    geocoding_total_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    geocoding_processed_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    geocoding_progress_percentage: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    geocoding_estimated_completion_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     calculation_status: Mapped[SimulationCalculationStatusEnum] = mapped_column(Enum(SimulationCalculationStatusEnum, native_enum=False), default=SimulationCalculationStatusEnum.pending, nullable=False)
     calculation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     calculated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -34,7 +34,7 @@ async def clean_uploaded_rows(simulation_job_id: str):
         result = await data_cleaning_service.run(simulation_job_id=simulation_job_id)
 
         wide_event["status"] = "success"
-        wide_event["processed_rows"] = result["processed_rows"]
+        wide_event["processed_rows"] = result["processed_rows"] if result else None
         wide_event["duration_ms"] = (time.time() - start_time) * 1000
 
         logger.info(wide_event)

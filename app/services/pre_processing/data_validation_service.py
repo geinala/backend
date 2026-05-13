@@ -1,7 +1,6 @@
 import json
 import time as time_module
 from datetime import datetime, timezone
-from fastapi.exceptions import ValidationException
 
 from app.repositories.simulation_job_repository import SimulationJobRepository
 from app.services.file_service import FileService
@@ -29,71 +28,7 @@ class DataValidationService:
         self.simulation_job_repository = simulation_job_repository
         self.simulation_uploaded_row_repository = simulation_uploaded_row_repository
         
-    async def run(self, simulation_job_id: str) -> None:
-        try:
-            dataset = await self._get_dataset(simulation_job_id=simulation_job_id)
-            fieldnames, rows = FileService.parse_csv_bytes(bytes(dataset))
-            
-            await self._validate_dataset(simulation_job_id=simulation_job_id, field_names=fieldnames, rows=rows)
-
-            await self.simulation_job_repository.update_simulation_job(
-                simulation_job_id=simulation_job_id,
-                update_data=SimulationJobUpdateData(
-                    updated_at=datetime.now(timezone.utc)
-                )
-            )
-            
-        except Exception as e:
-            logger.error("Error occurred while processing files", extra={"simulation_job_id": simulation_job_id, "error": str(e)})
-            raise e
-        
-    async def _get_dataset(self, simulation_job_id: str) -> bytes:
-        start_time = time_module.time()
-        wide_event: dict[str, object] = {
-            "event_type": "simulation_get_dataset",
-            "simulation_job_id": simulation_job_id,
-            "status": "processing",
-        }
-        
-        try:
-            simulation_job = await self.simulation_job_repository.get_simulation_job_by_id(simulation_job_id)
-            
-            if not simulation_job:
-                wide_event["status"] = "failed"
-                wide_event["error"] = f"Simulation job not found"
-                wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
-                logger.error(wide_event)
-                raise ValidationException(errors=f"Simulation job with ID {simulation_job_id} not found.")
-            
-            file_data = await self.minio_service.download_file(
-                object_name=str(simulation_job.file_path)
-            )
-            
-            if not file_data:
-                wide_event["status"] = "failed"
-                wide_event["error"] = "Downloaded file is empty"
-                wide_event["file_path"] = simulation_job.file_path
-                wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
-                logger.error(wide_event)
-                raise ValidationException(errors=f"File {simulation_job.file_path} is empty for simulation job {simulation_job_id}.")
-            
-            wide_event["status"] = "success"
-            wide_event["file_size"] = len(file_data)
-            wide_event["file_path"] = simulation_job.file_path
-            wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
-            logger.info(wide_event)
-            
-            return file_data
-            
-        except Exception as e:
-            wide_event["status"] = "failed"
-            wide_event["error"] = str(e)
-            wide_event["error_type"] = type(e).__name__
-            wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
-            logger.error(wide_event)
-            raise
-        
-    async def _validate_dataset(self, simulation_job_id: str, field_names: list[str], rows: list[dict[str, str]]) -> dict[str, object]:
+    async def run(self, simulation_job_id: str) -> dict[str, object] | None:
         start_time = time_module.time()
         wide_event: dict[str, object] = {
             "event_type": "simulation_validate_dataset",
@@ -102,12 +37,23 @@ class DataValidationService:
         }
         
         try:
+            dataset = await self._get_dataset(simulation_job_id=simulation_job_id)
+            
+            if not dataset:
+                wide_event["status"] = "failed"
+                wide_event["error"] = "Dataset is empty or could not be retrieved"
+                wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
+                logger.error(wide_event)
+                return
+            
+            field_names, rows = FileService.parse_csv_bytes(bytes(dataset))
+            
             await self.simulation_job_repository.update_simulation_job(
                 simulation_job_id=simulation_job_id,
                 update_data=SimulationJobUpdateData(
                     status=SimulationJobStatusEnum.processing,
                     file_validation_status=SimulationJobFileValidationStatusEnum.validating,
-                    validation_started_at=datetime.now(timezone.utc),
+                    file_validation_started_at=datetime.now(timezone.utc),
                     updated_at=datetime.now(timezone.utc)
                 )
             )
@@ -136,19 +82,68 @@ class DataValidationService:
             }
             
         except Exception as e:
+            logger.error("Error occurred while processing files", extra={"simulation_job_id": simulation_job_id, "error": str(e)})
+            await self.simulation_job_repository.update_simulation_job(
+                simulation_job_id=simulation_job_id,
+                update_data=SimulationJobUpdateData(
+                    status=SimulationJobStatusEnum.failed,
+                    updated_at=datetime.now(timezone.utc),
+                    file_validation_status=SimulationJobFileValidationStatusEnum.failed,
+                )
+            )
+            raise e
+        
+    async def _get_dataset(self, simulation_job_id: str) -> bytes | None:
+        start_time = time_module.time()
+        wide_event: dict[str, object] = {
+            "event_type": "simulation_get_dataset",
+            "simulation_job_id": simulation_job_id,
+            "status": "processing",
+        }
+        
+        try:
+            simulation_job = await self.simulation_job_repository.get_simulation_job_by_id(simulation_job_id)
+            
+            if not simulation_job:
+                wide_event["status"] = "failed"
+                wide_event["error"] = f"Simulation job not found"
+                wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
+                logger.error(wide_event)
+                return
+            
+            file_data = await self.minio_service.download_file(
+                object_name=str(simulation_job.file_path)
+            )
+            
+            if not file_data:
+                wide_event["status"] = "failed"
+                wide_event["error"] = "Downloaded file is empty"
+                wide_event["file_path"] = simulation_job.file_path
+                wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
+                logger.error(wide_event)
+                return
+            
+            wide_event["status"] = "success"
+            wide_event["file_size"] = len(file_data)
+            wide_event["file_path"] = simulation_job.file_path
+            wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
+            logger.info(wide_event)
+            
+            return file_data
+            
+        except Exception as e:
             wide_event["status"] = "failed"
             wide_event["error"] = str(e)
             wide_event["error_type"] = type(e).__name__
             wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
             logger.error(wide_event)
-            raise
+            raise e
 
     async def _validate_csv_content(self, field_names: list[str], rows: list[dict[str, str]], simulation_job_id: str) -> CSVValidationResult:
         errors: list[ValidationError] = []
         row_count = 0
 
         try:
-            # Check for missing required fields and add them as errors for each row
             missing_fields = self._get_missing_required_fields(field_names)
             
             total_rows = len(rows)
@@ -156,9 +151,8 @@ class DataValidationService:
             await self.simulation_job_repository.update_simulation_job(
                 simulation_job_id=simulation_job_id,
                 update_data=SimulationJobUpdateData(
-                    total_rows=total_rows,
-                    processed_rows=0,
-                    progress_percentage=0,
+                    file_processed_rows=0,
+                    file_progress_percentage=0,
                 )
             )
             
@@ -193,8 +187,8 @@ class DataValidationService:
                     await self.simulation_job_repository.update_simulation_job(
                         simulation_job_id=simulation_job_id,
                         update_data=SimulationJobUpdateData(
-                            processed_rows=index,
-                            progress_percentage=progress,
+                            file_processed_rows=index,
+                            file_progress_percentage=progress,
                             updated_at=datetime.now(timezone.utc)
                         )
                     )
@@ -204,11 +198,10 @@ class DataValidationService:
             await self.simulation_job_repository.update_simulation_job(
                 simulation_job_id=simulation_job_id,
                 update_data=SimulationJobUpdateData(
-                    progress_percentage=100,
-                    processed_rows=total_rows,
-                    invalid_rows=invalid_row_count,
-                    valid_rows=row_count - invalid_row_count,
-                    validation_completed_at=datetime.now(timezone.utc),
+                    file_progress_percentage=100,
+                    file_invalid_rows=invalid_row_count,
+                    file_valid_rows=row_count - invalid_row_count,
+                    file_validation_completed_at=datetime.now(timezone.utc),
                     file_validation_status=(
                         SimulationJobFileValidationStatusEnum.completed
                         if invalid_row_count == 0
@@ -231,14 +224,6 @@ class DataValidationService:
                 "error": str(e),
                 "error_type": type(e).__name__,
             })
-            await self.simulation_job_repository.update_simulation_job(
-                simulation_job_id=simulation_job_id,
-                update_data=SimulationJobUpdateData(
-                    updated_at=datetime.now(timezone.utc),
-                    file_validation_status=SimulationJobFileValidationStatusEnum.failed,
-                    validation_completed_at=datetime.now(timezone.utc)
-                )
-            )
             raise ValueError(f"Failed to validate CSV: {str(e)}")
         
     async def _store_uploaded_rows(
