@@ -15,13 +15,14 @@ class SimulationJobStatusEnum(enum.Enum):
     
 class SimulationGeocodingStatusEnum(enum.Enum):
     pending = 'pending'
-    processing = 'in_progress'
+    in_progress = 'in_progress'
+    needed_review = 'needed_review'
     completed = 'completed'
     failed = 'failed'
     
 class SimulationCalculationStatusEnum(enum.Enum):
     pending = 'pending'
-    processing = 'in_progress'
+    in_progress = 'in_progress'
     completed = 'completed'
     failed = 'failed'
     
@@ -69,6 +70,8 @@ class SimulationJob(Base):
     geocoding_status: Mapped[SimulationGeocodingStatusEnum] = mapped_column(Enum(SimulationGeocodingStatusEnum, native_enum=False), default=SimulationGeocodingStatusEnum.pending, nullable=False)
     geocoding_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     geocoded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    progress_geocoding_percentage: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    estimated_completion_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     calculation_status: Mapped[SimulationCalculationStatusEnum] = mapped_column(Enum(SimulationCalculationStatusEnum, native_enum=False), default=SimulationCalculationStatusEnum.pending, nullable=False)
     calculation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     calculated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

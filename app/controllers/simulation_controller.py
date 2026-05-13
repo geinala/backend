@@ -66,10 +66,9 @@ class SimulationController:
             logger.error(wide_event)
             raise e
 
-    async def clean_uploaded_rows(self, simulation_job_id: str) -> JSONResponse:
         start_time = time.time()
         wide_event: dict[str, object] = {
-            "event_type": "clean_uploaded_rows_request",
+            "event_type": "geocode_addresses_request",
             "simulation_job_id": simulation_job_id,
             "status": "processing",
         }
@@ -81,6 +80,8 @@ class SimulationController:
                 job_prefix=JOB_PREFIXES_ENUM.SIMULATION_CLEANING_DATA,
                 simulation_job_id=simulation_job_id
             )
+            
+            logger.info(f"Enqueued cleaning data job {job.id} for simulation {simulation_job_id}")
 
             wide_event["status"] = "success"
             wide_event["job_id"] = job.id
@@ -89,7 +90,7 @@ class SimulationController:
 
             return ResponseFormatter.success_with_data(
                 data={"job_id": str(job.id)},
-                message="Cleaning uploaded rows has been enqueued for processing",
+                message="Geocoding addresses has been enqueued for processing",
                 status_code=200,
             )
 

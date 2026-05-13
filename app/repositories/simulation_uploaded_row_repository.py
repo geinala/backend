@@ -30,6 +30,21 @@ class SimulationUploadedRowRepository:
             .order_by(SimulationUploadedRow.id.asc())
             .all()
         )
+        
+    async def get_uploaded_rows_by_simulation_job_id_and_resolution_status(
+        self, simulation_job_id: str, resolution_status: str
+    ) -> list[SimulationUploadedRow]:
+        return (
+            self.db.query(SimulationUploadedRow)
+            .filter(
+                SimulationUploadedRow.simulation_job_id == simulation_job_id,
+                SimulationUploadedRow.resolution_status == resolution_status,
+                SimulationUploadedRow.final_address.isnot(None),
+                SimulationUploadedRow.suggested_address.isnot(None)
+            )
+            .order_by(SimulationUploadedRow.id.asc())
+            .all()
+        )
 
     async def update_cleaned_rows(
         self,
@@ -40,6 +55,17 @@ class SimulationUploadedRowRepository:
 
         try:
             self.db.bulk_update_mappings(class_mapper(SimulationUploadedRow), cleaned_rows)
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+
+    async def update_geocoded_rows(self, updated_rows: list[dict[str, object]]) -> None:
+        if not updated_rows:
+            return
+
+        try:
+            self.db.bulk_update_mappings(class_mapper(SimulationUploadedRow), updated_rows)
             self.db.commit()
         except Exception:
             self.db.rollback()

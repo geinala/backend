@@ -20,6 +20,8 @@ class SimulationJobUpdateData(BaseModel):
     geocoding_status: SimulationGeocodingStatusEnum | None = None
     geocoding_started_at: datetime | None = None
     geocoded_at: datetime | None = None
+    progress_geocoding_percentage: int | None = None
+    estimated_completion_time: datetime | None = None
     calculation_status: SimulationCalculationStatusEnum | None = None
     calculation_started_at: datetime | None = None
     calculated_at: datetime | None = None

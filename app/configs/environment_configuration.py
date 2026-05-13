@@ -89,6 +89,7 @@ class EnvironmentConfiguration(BaseSettings):
     # TomTom Configuration
     TOMTOM_MATRIX_API_KEY: str = os.getenv("TOMTOM_MATRIX_API_KEY", "")
     TOMTOM_ROUTING_API_KEY: str = os.getenv("TOMTOM_ROUTING_API_KEY", "")
+    TOMTOM_SEARCH_API_KEY: str = os.getenv("TOMTOM_SEARCH_API_KEY", "")
 
     class Config:
         env_file = ".env"

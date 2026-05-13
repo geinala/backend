@@ -93,12 +93,63 @@ class RoutingPayload(TypedDict):
     sectionType: list[str]
     routeType: str
 
+
+class QuerySummary(TypedDict):
+    query: str
+    queryType: str
+    queryTime: int
+    numResults: int
+    offset: int
+    totalResults: int
+    fuzzyLevel: int
+    queryIntent: List[str]
+
+
+class AddressData(TypedDict):
+    streetName: str
+    municipality: str
+    municipalitySecondarySubdivision: str
+    countrySubdivision: str
+    countrySubdivisionName: str
+    countrySubdivisionCode: str
+    countryCode: str
+    country: str
+    countryCodeISO3: str
+    freeformAddress: str
+    localName: str
+
+
+class LatLon(TypedDict):
+    lat: float
+    lon: float
+
+
+class Viewport(TypedDict):
+    topLeftPoint: LatLon
+    btmRightPoint: LatLon
+
+
+class FuzzySearchResult(TypedDict):
+    type: str
+    id: str
+    score: float
+    address: AddressData
+    position: LatLon
+    viewport: Viewport
+
+
+class FuzzySearchResponse(TypedDict):
+    summary: QuerySummary
+    results: List[FuzzySearchResult] | None
+
+
 class TomTomService:
-    BASE_URL = "https://api.tomtom.com/routing/matrix/2/async"
+    BASE_URL = "https://api.tomtom.com"
     
     def __init__(self):
         self.matrix_api_key = env.TOMTOM_MATRIX_API_KEY
         self.routing_api_key = env.TOMTOM_ROUTING_API_KEY
+        self.search_api_key = env.TOMTOM_SEARCH_API_KEY
         self.session = requests.Session()
 
     def generate_routes(self, routes: str, depart_at: str | None) -> TomTomRouteResultResponse:
@@ -134,7 +185,7 @@ class TomTomService:
         
         try:
             response = self.session.get(
-                f"https://api.tomtom.com/routing/1/calculateRoute/{routes}/json",
+                f"{self.BASE_URL}/routing/1/calculateRoute/{routes}/json",
                 params=params,
                 timeout=30,
             )
@@ -144,9 +195,7 @@ class TomTomService:
             return response.json()
         except requests.exceptions.RequestException as e:
             logger.error(f"TomTom API request failed: {e}")
-            raise RuntimeError(f"TomTom API request failed: {e}") from e
-        
-        
+            raise RuntimeError(f"TomTom API request failed: {e}") from e 
 
     def submit_matrix(
         self,
@@ -175,7 +224,7 @@ class TomTomService:
 
         try:
             response = self.session.post(
-                self.BASE_URL,
+                f"{self.BASE_URL}/routing/matrix/2/async",
                 json=payload,
                 params=PARAMS,
                 timeout=30,
@@ -192,7 +241,7 @@ class TomTomService:
             raise RuntimeError(f"TomTom API request failed: {e}") from e
     
     def get_matrix_status(self, job_id: str) -> TomTomStatusResponse:
-        URL = f"{self.BASE_URL}/{job_id}"
+        URL = f"{self.BASE_URL}/routing/matrix/2/async/{job_id}"
         PARAMS = {"key": self.matrix_api_key}
 
         try:
@@ -204,7 +253,7 @@ class TomTomService:
             raise RuntimeError(f"TomTom API request failed: {e}") from e
         
     def get_matrix_result(self, job_id: str) -> TomTomMatrixResultResponse:
-        URL = f"{self.BASE_URL}/{job_id}/result"
+        URL = f"{self.BASE_URL}/routing/matrix/2/async/{job_id}/result"
         PARAMS = {"key": self.matrix_api_key}
 
         try:
@@ -213,4 +262,28 @@ class TomTomService:
             return response.json()
 
         except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"TomTom API request failed: {e}") from e
+        
+    async def fuzzy_search(self, query: str) -> FuzzySearchResponse:
+        URL = f"{self.BASE_URL}/search/2/search/{query}.json"
+        params: dict[str, str | int] = {
+            "key": self.search_api_key,
+            "minFuzzyLevel": 1,
+            "maxFuzzyLevel": 2,
+            "view": "Unified",
+            "relatedPois": "off",
+            "idxSet": "Addr,Str",
+            "limit": 10,
+            "lat": "-7.983908",
+            "lon": "112.621391",
+            "radius": 20000,
+        }
+        
+        try:
+            response = self.session.get(URL, params=params, timeout=30)
+            response.raise_for_status()
+            return response.json()
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"TomTom fuzzy search failed: {e}")
             raise RuntimeError(f"TomTom API request failed: {e}") from e
