@@ -29,8 +29,15 @@ class SimulationJobFileValidationStatusEnum(enum.Enum):
     uploaded = 'uploaded'
     validating = 'validating'
     validated = 'validated'
-    reviewing = 'reviewing'
+    needed_review = 'needed_review'
     completed = 'completed'
+    failed = 'failed'
+
+class SimulationJobFileCleaningStatusEnum(enum.Enum):
+    pending = 'pending'
+    cleaning = 'cleaning'
+    completed = 'completed'
+    needed_review = 'needed_review'
     failed = 'failed'
 
 class SimulationJob(Base):
@@ -55,6 +62,10 @@ class SimulationJob(Base):
     progress_percentage: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     validation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     validation_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    progress_cleaning_percentage: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cleaning_status: Mapped[SimulationJobFileCleaningStatusEnum] = mapped_column(Enum(SimulationJobFileCleaningStatusEnum, native_enum=False), default=SimulationJobFileCleaningStatusEnum.pending, nullable=False)
+    cleaning_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cleaning_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     geocoding_status: Mapped[SimulationGeocodingStatusEnum] = mapped_column(Enum(SimulationGeocodingStatusEnum, native_enum=False), default=SimulationGeocodingStatusEnum.pending, nullable=False)
     geocoding_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     geocoded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -2,7 +2,7 @@
 from pydantic import BaseModel
 from datetime import datetime
 
-from app.models.simulation_job import SimulationGeocodingStatusEnum, SimulationJobFileValidationStatusEnum, SimulationJobStatusEnum, SimulationCalculationStatusEnum
+from app.models.simulation_job import SimulationGeocodingStatusEnum, SimulationJobFileCleaningStatusEnum, SimulationJobFileValidationStatusEnum, SimulationJobStatusEnum, SimulationCalculationStatusEnum
 
 
 class SimulationJobUpdateData(BaseModel):
@@ -16,6 +16,7 @@ class SimulationJobUpdateData(BaseModel):
     progress_percentage: int | None = None
     validation_started_at: datetime | None = None
     validation_completed_at: datetime | None = None
+    progress_cleaning_percentage: int | None = None
     geocoding_status: SimulationGeocodingStatusEnum | None = None
     geocoding_started_at: datetime | None = None
     geocoded_at: datetime | None = None
@@ -25,6 +26,9 @@ class SimulationJobUpdateData(BaseModel):
     total_vehicles: int | None = None
     total_nodes: int | None = None
     updated_at: datetime | None = None
-    
+    cleaning_status: SimulationJobFileCleaningStatusEnum | None = None
+    cleaning_started_at: datetime | None = None
+    cleaning_completed_at: datetime | None = None
+
     class Config:
         from_attributes = True

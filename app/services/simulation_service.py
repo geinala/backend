@@ -12,7 +12,11 @@ from app.repositories.node_repository import NodeRepository
 from app.repositories.simulation_uploaded_row_repository import SimulationUploadedRowRepository
 from app.lib.logging.logging import get_logger
 from app.models.error_report import ValidationError, CSVValidationResult
-from app.models.simulation_job import SimulationJobStatusEnum, SimulationJobFileValidationStatusEnum
+from app.models.simulation_job import (
+    SimulationJobStatusEnum,
+    SimulationJobFileCleaningStatusEnum,
+    SimulationJobFileValidationStatusEnum,
+)
 from app.schemas.simulation_job_schema import SimulationJobUpdateData
 from app.schemas.simulation_job_uploaded_row_schema import CreateSimulationUploadedRowSchema
 
@@ -103,6 +107,8 @@ class SimulationService:
 
     async def clean_uploaded_rows(self, simulation_job_id: str) -> dict[str, object]:
         start_time = time_module.time()
+        cleaning_started_at = datetime.now(timezone.utc)
+        cleaning_started = False
         wide_event: dict[str, object] = {
             "event_type": "simulation_clean_uploaded_rows",
             "simulation_job_id": simulation_job_id,
@@ -132,9 +138,23 @@ class SimulationService:
                     errors=f"No uploaded rows found for simulation job {simulation_job_id}."
                 )
 
-            cleaned_rows: list[dict[str, object]] = []
+            await self.simulation_job_repository.update_simulation_job(
+                simulation_job_id=simulation_job_id,
+                update_data=SimulationJobUpdateData(
+                    cleaning_status=SimulationJobFileCleaningStatusEnum.cleaning,
+                    cleaning_started_at=cleaning_started_at,
+                    cleaning_completed_at=None,
+                    progress_cleaning_percentage=0,
+                    updated_at=datetime.now(timezone.utc),
+                ),
+            )
+            cleaning_started = True
 
-            for row in uploaded_rows:
+            cleaned_rows: list[dict[str, object]] = []
+            total_rows = len(uploaded_rows)
+            progress_update_interval = max(1, total_rows // 20)  # ~5% granularity
+
+            for index, row in enumerate(uploaded_rows, start=1):
                 prepared = self._prepare_row_for_cleaning(
                     address=row.address,
                     city=row.city,
@@ -149,10 +169,25 @@ class SimulationService:
                     }
                 )
 
+                if index % progress_update_interval == 0 or index == total_rows:
+                    progress = int((index / total_rows) * 100)
+                    await self.simulation_job_repository.update_simulation_job(
+                        simulation_job_id=simulation_job_id,
+                        update_data=SimulationJobUpdateData(
+                            progress_cleaning_percentage=progress,
+                            updated_at=datetime.now(timezone.utc),
+                        ),
+                    )
+
             await self.simulation_uploaded_row_repository.update_cleaned_rows(cleaned_rows=cleaned_rows)
+            
             await self.simulation_job_repository.update_simulation_job(
                 simulation_job_id=simulation_job_id,
                 update_data=SimulationJobUpdateData(
+                    cleaning_status=SimulationJobFileCleaningStatusEnum.completed,
+                    cleaning_started_at=cleaning_started_at,
+                    cleaning_completed_at=datetime.now(timezone.utc),
+                    progress_cleaning_percentage=100,
                     updated_at=datetime.now(timezone.utc),
                 )
             )
@@ -168,6 +203,15 @@ class SimulationService:
             }
 
         except Exception as e:
+            if cleaning_started:
+                await self.simulation_job_repository.update_simulation_job(
+                    simulation_job_id=simulation_job_id,
+                    update_data=SimulationJobUpdateData(
+                        cleaning_status=SimulationJobFileCleaningStatusEnum.failed,
+                        cleaning_completed_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc),
+                    ),
+                )
             wide_event["status"] = "failed"
             wide_event["error"] = str(e)
             wide_event["error_type"] = type(e).__name__
@@ -441,7 +485,12 @@ class SimulationService:
                     processed_rows=total_rows,
                     invalid_rows=invalid_row_count,
                     valid_rows=row_count - invalid_row_count,
-                    file_validation_status=SimulationJobFileValidationStatusEnum.completed if invalid_row_count == 0 else SimulationJobFileValidationStatusEnum.reviewing,
+                    validation_completed_at=datetime.now(timezone.utc),
+                    file_validation_status=(
+                        SimulationJobFileValidationStatusEnum.completed
+                        if invalid_row_count == 0
+                        else SimulationJobFileValidationStatusEnum.needed_review
+                    ),
                     updated_at=datetime.now(timezone.utc),
                     current_step=1 if invalid_row_count > 0 else 2,
                 )
