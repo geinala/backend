@@ -12,9 +12,7 @@ class SimulationUploadedRowRepository:
         row_objects: list[dict[str, object]] = []
 
         for row in rows:
-            row_data = row.model_dump()
-            row_data["error_details"] = row_data["error_details"] or "[]"
-            row_objects.append(row_data)
+            row_objects.append(row.model_dump())
 
         try:
             self.db.execute(SimulationUploadedRow.__table__.insert(), row_objects)
@@ -39,6 +37,7 @@ class SimulationUploadedRowRepository:
             .filter(
                 SimulationUploadedRow.simulation_job_id == simulation_job_id,
                 SimulationUploadedRow.resolution_status == resolution_status,
+                SimulationUploadedRow.is_ignored == False,
                 SimulationUploadedRow.final_address.isnot(None),
                 SimulationUploadedRow.suggested_address.isnot(None)
             )

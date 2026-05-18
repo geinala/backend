@@ -21,3 +21,14 @@ async def process_files(
 ):
     controller = SimulationJobController(db=db)
     return await controller.preprocess_simulation_job(simulation_job_id=id)
+
+@router.post(
+    path="/{id}/revalidate",
+    summary="Revalidate manually corrected simulation job geocoding results"
+)
+async def revalidate_files(
+    id: str,
+    db: Session = Depends(get_db)
+):
+    controller = SimulationJobController(db=db)
+    return await controller.revalidate_simulation_job(simulation_job_id=id)

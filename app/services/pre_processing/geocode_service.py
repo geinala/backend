@@ -29,16 +29,30 @@ class GeocodeService:
         self.simulation_uploaded_row_repository = simulation_uploaded_row_repository
         self.simulation_job_repository = simulation_job_repository
 
-    async def run(self, simulation_job_id: str) -> list[dict[str, object]]:
+    async def run(
+        self,
+        simulation_job_id: str,
+        resolution_status: str = "auto_solved",
+        geocoded_resolution_status: str = "auto_solved",
+        advance_current_step: bool = False,
+    ) -> list[dict[str, object]]:
         logger.info(f"Starting geocoding process for simulation job {simulation_job_id}")
         start_time = time_module.time()
         wide_event: dict[str, object] = {
             "event_type": "geocode_process",
             "simulation_job_id": simulation_job_id,
             "status": "processing",
+            "resolution_status": resolution_status,
+            "geocoded_resolution_status": geocoded_resolution_status,
+            "advance_current_step": advance_current_step,
         }
         
         try:
+            simulation_job = await self.simulation_job_repository.get_simulation_job_by_id(simulation_job_id)
+
+            if not simulation_job:
+                raise ValueError(f"Simulation job with ID {simulation_job_id} not found.")
+
             # Set geocoding as started
             await self.simulation_job_repository.update_simulation_job(
                 simulation_job_id=simulation_job_id,
@@ -55,7 +69,7 @@ class GeocodeService:
             
             uploaded_rows = await self.simulation_uploaded_row_repository.get_uploaded_rows_by_simulation_job_id_and_resolution_status(
                 simulation_job_id=simulation_job_id,
-                resolution_status="auto_solved"
+                resolution_status=resolution_status
             )
 
             total_rows = len(uploaded_rows)
@@ -82,7 +96,7 @@ class GeocodeService:
             for batch_index, batch_start in enumerate(range(0, len(uploaded_rows), self.BATCH_SIZE), start=1):
                 batch_rows = uploaded_rows[batch_start:batch_start + self.BATCH_SIZE]
                 batch_results = await asyncio.gather(
-                    *[self._geocode_single_row(row, semaphore) for row in batch_rows]
+                    *[self._geocode_single_row(row, semaphore, geocoded_resolution_status) for row in batch_rows]
                 )
 
                 batch_processed_rows = [row for row in batch_results if row.get("status") != "skipped"]
@@ -123,13 +137,19 @@ class GeocodeService:
                 logger.info(wide_event)
 
             geocoding_status = SimulationGeocodingStatusEnum.needed_review if has_needed_review_rows else SimulationGeocodingStatusEnum.completed
+            should_advance_current_step = advance_current_step and total_rows > 0 and not has_needed_review_rows
+            current_step = (
+                simulation_job.current_step + 1
+                if should_advance_current_step
+                else (simulation_job.current_step if advance_current_step else self.GEOCODE_STEP)
+            )
 
             await self.simulation_job_repository.update_simulation_job(
                 simulation_job_id=simulation_job_id,
                 update_data=SimulationJobUpdateData(
                     geocoded_at=datetime.now(timezone.utc),
                     updated_at=datetime.now(timezone.utc),
-                    current_step=self.GEOCODE_STEP,
+                    current_step=current_step,
                     geocoding_total_rows=total_rows,
                     geocoding_processed_rows=processed_rows_count,
                     geocoding_progress_percentage=100,
@@ -195,7 +215,7 @@ class GeocodeService:
             logger.error(wide_event)
             raise e
         
-    async def _geocode_single_row(self, row: SimulationUploadedRow, semaphore: asyncio.Semaphore) -> dict[str, object]:
+    async def _geocode_single_row(self, row: SimulationUploadedRow, semaphore: asyncio.Semaphore, geocoded_resolution_status: str) -> dict[str, object]:
         async with semaphore:
             if not row.final_address:
                 return {
@@ -220,6 +240,7 @@ class GeocodeService:
                             "geocode_provider": "TomTom API",
                             "geocode_score": best_result.get("score"),
                             "geocode_response": json.dumps(geocode_result),
+                            "resolution_status": geocoded_resolution_status,
                         }
             
             return {

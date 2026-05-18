@@ -1,6 +1,10 @@
+import json
 import re
 import time as time_module
+from functools import lru_cache
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Literal, TypedDict, cast
 
 from app.repositories.simulation_job_repository import SimulationJobRepository
 from app.repositories.simulation_uploaded_row_repository import SimulationUploadedRowRepository
@@ -14,6 +18,7 @@ from app.models.simulation_uploaded_row import ResolutionStatusEnum
 from app.models.simulation_job import SimulationJobStatusEnum
 
 logger = get_logger(__name__)
+GEOGRAPHIC_TERMS_PATH = Path(__file__).resolve().parents[2] / "statics" / "malang_geographic_terms.json"
 
 ALIAS_MAP = {
     "jl": "jalan",
@@ -31,6 +36,18 @@ ALIAS_MAP = {
     "a": "ahmad",
     "jend": "jenderal",
     "per": "perumahan",
+    "letjen": "letnan jenderal",
+    "kh": "kyai haji",
+    "prof": "profesor",
+    "mayjen": "mayor jenderal",
+    "mayjend": "mayor jenderal",
+    "meyjend": "mayor jenderal",
+    "myjend": "mayor jenderal",
+    "s": "sunandar",
+    "priyo": "priyosudarmo",
+    "hartono": "haryono",
+    "harryono": "haryono",
+    "kloweh": "kluwe",
 }
 
 NOISE_WORDS = {
@@ -65,6 +82,16 @@ STOP_AFTER_STREET = {
 BLOCK_PATTERN = re.compile(r"^[a-z]{1,2}\d+$", re.IGNORECASE)
 HOUSE_TOKEN_PATTERN = re.compile(r"^(?:\d+[a-z]{0,2}|[a-z]{1,2}\d+[a-z]{0,2})$", re.IGNORECASE)
 ROMAN_NUMERAL_PATTERN = re.compile(r"^[ivxlcdm]+$", re.IGNORECASE)
+AddressType = Literal["street", "residential", "unknown"]
+
+
+class PreparedAddressResult(TypedDict):
+    cleaned: str
+    street_candidate: str | None
+    fallback: str
+    query: str
+    address_type: AddressType
+
 
 class DataCleaningService:
     def __init__(
@@ -75,7 +102,7 @@ class DataCleaningService:
         self.simulation_job_repository = simulation_job_repository
         self.simulation_uploaded_row_repository = simulation_uploaded_row_repository
     
-    async def run(self, simulation_job_id: str) -> dict[str, object] | None:
+    async def run(self, simulation_job_id: str) -> dict[str, object]:
         start_time = time_module.time()
         cleaning_started_at = datetime.now(timezone.utc)
         wide_event: dict[str, object] = {
@@ -120,11 +147,12 @@ class DataCleaningService:
                     address=row.address,
                     city=row.city,
                 )
+                
                 cleaned_row: dict[str, object] = {
                     "id": row.id,
-                    "normalized_address": prepared.get("cleaned"),
-                    "suggested_address": prepared.get("query"),
-                    "final_address": prepared.get("query"),
+                    "normalized_address": prepared["cleaned"] if prepared["cleaned"] and prepared["cleaned"].strip() else None,
+                    "suggested_address": prepared["query"],
+                    "final_address": prepared["query"],
                     "resolution_status": ResolutionStatusEnum.auto_solved,
                     "resolution_source": "SYSTEM",
                 }
@@ -179,46 +207,69 @@ class DataCleaningService:
             logger.error(wide_event)
             raise e
 
-    def _prepare_row_for_cleaning(self, address: str | None, city: str | None, default_city: str = "malang") -> dict[str, str | None]:
+    def _prepare_row_for_cleaning(
+        self,
+        address: str | None,
+        city: str | None,
+        default_city: str = "malang",
+    ) -> PreparedAddressResult:
         cleaned = self._clean_text(address)
+        extracted_street = self._extract_street_name(cleaned)
+        cleaned = self._remove_geographic_terms(
+            cleaned,
+            preserved_phrase=extracted_street,
+        )
         address_type = self._detect_address_type(cleaned)
-        street = self._extract_street_name(cleaned)
         fallback = self._extract_city_fallback(city)
 
-        filtered: list[str] = []
-        for token in cleaned.split():
-            if token in NOISE_WORDS:
-                continue
-            if self._is_house_number(token):
-                continue
-            if self._is_block_code(token):
-                continue
-            if self._is_roman_numeral(token):
-                continue
-            filtered.append(token)
+        all_tokens = cleaned.split()
 
-        if address_type == "residential" and street:
-            street_tokens = street.split()
-            remainder = [token for token in filtered if token not in street_tokens]
-            tokens = street_tokens + remainder
+        def should_keep(token: str) -> bool:
+            return not (
+                token in NOISE_WORDS
+                or self._is_house_number(token)
+                or self._is_block_code(token)
+                or self._is_roman_numeral(token)
+            )
+
+        result: list[str] = []
+
+        if address_type == "street" and extracted_street:
+            street_tokens = extracted_street.split()
+            jalan_idx = all_tokens.index("jalan")
+            street_end_idx = jalan_idx + len(street_tokens)
+
+            for t in all_tokens[:jalan_idx]:
+                if should_keep(t):
+                    result.append(t)
+
+            result.extend(street_tokens)
+
+            for t in all_tokens[street_end_idx:]:
+                if should_keep(t):
+                    result.append(t)
         else:
-            tokens = filtered
+            for t in all_tokens:
+                if should_keep(t):
+                    result.append(t)
 
-        if fallback:
-            for part in fallback.split():
-                if part not in tokens:
-                    tokens.append(part)
+        seen_for_fallback = set(result)
+        for part in fallback.split():
+            if part not in seen_for_fallback:
+                result.append(part)
+                seen_for_fallback.add(part)
 
-        query = " ".join(tokens).strip()
-        if default_city not in query.split():
-            query = f"{query} {default_city}".strip()
+        if default_city not in seen_for_fallback:
+            result.append(default_city)
 
+        query = " ".join(result).strip()
+        
         street_candidate: str | None = None
         if address_type != "unknown":
-            if street and fallback:
-                street_candidate = f"{street} {fallback}".strip()
-            elif street:
-                street_candidate = street
+            if extracted_street and fallback:
+                street_candidate = f"{extracted_street} {fallback}".strip()
+            elif extracted_street:
+                street_candidate = extracted_street
             elif address_type == "residential" and query:
                 street_candidate = query
 
@@ -230,7 +281,52 @@ class DataCleaningService:
             "address_type": address_type,
         }
 
-    def _clean_text(self, text: str | None) -> str:
+    @classmethod
+    @lru_cache(maxsize=1)
+    def _load_geographic_terms(cls) -> tuple[tuple[str, ...], ...]:
+        if not GEOGRAPHIC_TERMS_PATH.exists():
+            logger.warning(
+                {
+                    "event_type": "geographic_terms_load_missing",
+                    "path": str(GEOGRAPHIC_TERMS_PATH),
+                }
+            )
+            return tuple()
+
+        with GEOGRAPHIC_TERMS_PATH.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
+
+        if not isinstance(payload, list):
+            raise ValueError(f"Invalid geographic terms format in {GEOGRAPHIC_TERMS_PATH}")
+
+        payload = cast(list[str], payload)
+
+        normalized_terms: set[tuple[str, ...]] = set()
+        for item in payload:
+            cleaned_term = cls._clean_text(item)
+            if cleaned_term:
+                normalized_terms.add(tuple(cleaned_term.split()))
+
+        return tuple(
+            sorted(
+                normalized_terms,
+                key=lambda term_tokens: (-len(term_tokens), term_tokens),
+            )
+        )
+
+    def _resolve_street_name(
+        self,
+        text: str,
+        address_type: AddressType,
+        extracted_street: str,
+    ) -> str:
+        if address_type == "unknown" or not extracted_street:
+            return extracted_street
+
+        return f"jalan {extracted_street}".strip()
+
+    @staticmethod
+    def _clean_text(text: str | None) -> str:
         if not text:
             return ""
 
@@ -241,7 +337,8 @@ class DataCleaningService:
         tokens = [ALIAS_MAP.get(token, token) for token in normalized.split()]
         return " ".join(tokens)
     
-    def _detect_address_type(self, text: str) -> str:
+    @staticmethod
+    def _detect_address_type(text: str) -> AddressType:
         tokens = text.split()
 
         if "jalan" in tokens:
@@ -266,9 +363,17 @@ class DataCleaningService:
                 break
             if token in STOP_AFTER_STREET:
                 break
+            geographic_term_length = self._match_geographic_term_length(tokens, start + len(result))
+            if geographic_term_length > 0:
+                if len(result) == 1:
+                    pass
+                else:
+                    break
             if self._is_house_number(token):
                 break
             if self._is_block_code(token):
+                break
+            if self._is_roman_numeral(token):
                 break
             if token == "gang":
                 break
@@ -279,6 +384,75 @@ class DataCleaningService:
                 break
 
         return " ".join(result)
+
+    def _remove_geographic_terms(
+        self,
+        text: str,
+        preserved_phrase: str = "",
+    ) -> str:
+        tokens = text.split()
+        if not tokens:
+            return ""
+
+        preserved_tokens = preserved_phrase.split()
+        preserved_ranges = self._find_phrase_ranges(tokens, preserved_tokens)
+
+        filtered_tokens: list[str] = []
+        index = 0
+
+        while index < len(tokens):
+            preserved_range = next(
+                (
+                    token_range
+                    for token_range in preserved_ranges
+                    if token_range[0] == index
+                ),
+                None,
+            )
+            if preserved_range:
+                filtered_tokens.extend(tokens[preserved_range[0]:preserved_range[1]])
+                index = preserved_range[1]
+                continue
+
+            geographic_term_length = self._match_geographic_term_length(tokens, index)
+            if geographic_term_length > 0:
+                index += geographic_term_length
+                continue
+
+            filtered_tokens.append(tokens[index])
+            index += 1
+
+        return " ".join(filtered_tokens)
+
+    @staticmethod
+    def _find_phrase_ranges(
+        tokens: list[str],
+        phrase_tokens: list[str],
+    ) -> list[tuple[int, int]]:
+        if not phrase_tokens:
+            return []
+
+        phrase_length = len(phrase_tokens)
+        ranges: list[tuple[int, int]] = []
+
+        for index in range(len(tokens) - phrase_length + 1):
+            if tokens[index:index + phrase_length] == phrase_tokens:
+                ranges.append((index, index + phrase_length))
+
+        return ranges
+
+    @classmethod
+    def _match_geographic_term_length(
+        cls,
+        tokens: list[str],
+        start_index: int,
+    ) -> int:
+        for term_tokens in cls._load_geographic_terms():
+            term_length = len(term_tokens)
+            if tuple(tokens[start_index:start_index + term_length]) == term_tokens:
+                return term_length
+
+        return 0
     
     def _is_house_number(self, token: str) -> bool:
         return token.isdigit() or bool(HOUSE_TOKEN_PATTERN.match(token))
@@ -298,5 +472,5 @@ class DataCleaningService:
             text = text[5:]
 
         parts = [part.strip().lower() for part in text.split(",") if part.strip()]
-        parts.reverse()
-        return " ".join(parts)
+        return " ".join(parts[1:])
+    

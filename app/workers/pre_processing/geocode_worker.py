@@ -7,7 +7,12 @@ from app.services.pre_processing.geocode_service import GeocodeService
 
 logger = get_logger(__name__)
 
-async def geocode_address(simulation_job_id: str):
+async def geocode_address(
+    simulation_job_id: str,
+    resolution_status: str = "auto_solved",
+    geocoded_resolution_status: str = "auto_solved",
+    advance_current_step: bool = False,
+):
     job = get_current_job()
     start_time = time.time()
     
@@ -16,6 +21,9 @@ async def geocode_address(simulation_job_id: str):
         "job_id": job.id if job else None,
         "simulation_job_id": simulation_job_id,
         "status": "processing",
+        "resolution_status": resolution_status,
+        "geocoded_resolution_status": geocoded_resolution_status,
+        "advance_current_step": advance_current_step,
     }
     
     try:
@@ -31,7 +39,12 @@ async def geocode_address(simulation_job_id: str):
             simulation_job_repository=SimulationJobRepository(db)
         )
         
-        result = await geocode_service.run(simulation_job_id=simulation_job_id)
+        result = await geocode_service.run(
+            simulation_job_id=simulation_job_id,
+            resolution_status=resolution_status,
+            geocoded_resolution_status=geocoded_resolution_status,
+            advance_current_step=advance_current_step,
+        )
         
         wide_event["status"] = "success"
         wide_event["processed_rows"] = len(result) if result else 0

@@ -273,7 +273,7 @@ class TomTomService:
             "view": "Unified",
             "relatedPois": "off",
             "idxSet": "Addr,Str",
-            "limit": 10,
+            "limit": 1,
             "lat": "-7.983908",
             "lon": "112.621391",
             "radius": 20000,

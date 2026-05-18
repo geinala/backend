@@ -261,9 +261,13 @@ class DataValidationService:
                     weight=self._parse_float(weight_value),
                     start_datetime=self._parse_datetime(start_datetime_value),
                     end_datetime=self._parse_datetime(end_datetime_value),
-                    error_details=json.dumps(
-                        [error.to_dict() for error in row_errors],
-                        ensure_ascii=False,
+                    error_details=(
+                        json.dumps(
+                            [error.to_dict() for error in row_errors],
+                            ensure_ascii=False,
+                        )
+                        if row_errors
+                        else None
                     ),
                     created_at=datetime.now(timezone.utc),
                 )

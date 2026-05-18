@@ -28,6 +28,7 @@ class SimulationUploadedRow(Base):
     final_address: Mapped[str | None] = mapped_column(String, nullable=True)
     city: Mapped[str | None] = mapped_column(String, nullable=True)
     weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_ignored: Mapped[bool] = mapped_column(nullable=False, default=False)
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     geocode_score: Mapped[float | None] = mapped_column(Float, nullable=True)
