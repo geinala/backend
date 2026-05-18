@@ -42,7 +42,8 @@ class PreProcessingWorkflowService:
                 job_type=JobType.LIGHT,
                 job_prefix=JOB_PREFIXES_ENUM.SIMULATION_JOB_GEOCODING,
                 simulation_job_id=simulation_job_id,                
-                depends_on=cleaning_job
+                depends_on=cleaning_job,
+                advance_current_step=True,
             )
             
             logger.info(f"Enqueued geocoding job {geocoding_job.id} for simulation {simulation_job_id} after cleaning completion")
