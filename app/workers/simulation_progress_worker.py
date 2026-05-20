@@ -6,7 +6,11 @@ from rq import get_current_job
 from app.lib.db import get_db
 from app.lib.logging.logging import get_logger
 from app.repositories.route_repository import DueArrivalEvent, RouteRepository
-from app.workers.events_worker import emit_vehicle_arrived_event
+from app.workers.events_worker import (
+    emit_vehicle_arrived_event,
+    emit_vehicle_departed_node_event,
+    emit_vehicle_returned_to_depot_event,
+)
 
 logger = get_logger(__name__)
 
@@ -30,31 +34,47 @@ def process_running_simulation_arrivals() -> dict[str, int]:
             datetime.now(timezone.utc)
         )
 
-        transitioned_arrivals: list[DueArrivalEvent] = []
+        transitioned_arrivals: list[tuple[DueArrivalEvent, bool]] = []
 
         for arrival in due_arrivals:
             updated = route_repository.mark_route_leg_as_visited(arrival["route_leg_id"])
             if not updated:
                 continue
 
-            transitioned_arrivals.append(arrival)
-            route_repository.promote_next_route_leg_to_in_progress(
+            has_next_leg = route_repository.promote_next_route_leg_to_in_progress(
                 courier_route_id=arrival["courier_route_id"],
                 current_sequence=arrival["sequence"],
             )
+            transitioned_arrivals.append((arrival, has_next_leg))
 
         db.commit()
 
         emitted_count = 0
-        for arrival in transitioned_arrivals:
+        for arrival, has_next_leg in transitioned_arrivals:
             if arrival["node_id"] < 0:
                 continue
 
             emit_vehicle_arrived_event(
                 simulation_id=arrival["simulation_id"],
+                courier_route_id=arrival["courier_route_id"],
                 courier_id=arrival["courier_id"],
                 node_id=arrival["node_id"],
+                record_log=True,
             )
+
+            if has_next_leg:
+                emit_vehicle_departed_node_event(
+                    simulation_id=arrival["simulation_id"],
+                    courier_route_id=arrival["courier_route_id"],
+                    courier_id=arrival["courier_id"],
+                    node_id=arrival["node_id"],
+                )
+            else:
+                emit_vehicle_returned_to_depot_event(
+                    simulation_id=arrival["simulation_id"],
+                    courier_route_id=arrival["courier_route_id"],
+                    courier_id=arrival["courier_id"],
+                )
             emitted_count += 1
 
         wide_event["status"] = "success"

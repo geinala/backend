@@ -15,6 +15,7 @@ logger = get_logger(__name__)
 
 class CourierArrivalSchedule(TypedDict):
     simulation_id: str
+    courier_route_id: int
     courier_id: int
     node_id: int
     eta_seconds: int
@@ -68,6 +69,7 @@ def schedule_courier_arrival_events(arrivals: list[CourierArrivalSchedule]) -> i
             timedelta(seconds=eta_seconds),
             "app.workers.events_worker.emit_vehicle_arrived_event",
             simulation_id=arrival["simulation_id"],
+            courier_route_id=arrival["courier_route_id"],
             courier_id=arrival["courier_id"],
             node_id=arrival["node_id"],
         )

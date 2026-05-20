@@ -1,10 +1,16 @@
 
 import uuid
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import UUID, Integer, String, ForeignKey, DateTime, Float, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.lib.db import Base
-from sqlalchemy import UUID, Integer, String, ForeignKey, DateTime, Float, func
-from sqlalchemy.orm import Mapped, mapped_column
-from datetime import datetime
+
+if TYPE_CHECKING:
+    from app.models.courier_route import CourierRoute
+    from app.models.simulation import Simulation
 
 class OptimizationRun(Base):
     __tablename__ = 'optimization_runs'
@@ -19,3 +25,6 @@ class OptimizationRun(Base):
     total_travel_time_in_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     computation_time_in_ms: Mapped[float] = mapped_column(Float, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    simulation: Mapped["Simulation"] = relationship("Simulation")
+    courier_route: Mapped["CourierRoute"] = relationship("CourierRoute")

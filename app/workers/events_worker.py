@@ -1,7 +1,41 @@
+from app.configs.worker_configuration import JobType
+from app.constants.job_prefixes import JOB_PREFIXES_ENUM
+from app.constants.simulation_log_event_types import (
+    VEHICLE_ARRIVED_AT_NODE,
+    VEHICLE_DEPARTED_DEPOT,
+    VEHICLE_DEPARTED_NODE,
+    VEHICLE_RETURNED_TO_DEPOT,
+)
 from app.lib.logging.logging import get_logger
+from app.schemas.simulation_log_schema import CreateSimulationLog
+from app.services.job_service import enqueue_job
 from app.services.realtime_event_service import publish_realtime_event
+from app.workers.log_worker import create_simulation_log
 
 logger = get_logger(__name__)
+
+
+def _enqueue_vehicle_simulation_log(
+    simulation_id: str,
+    event_type: str,
+    title: str,
+    description: str,
+    courier_route_id: int,
+    courier_id: int,
+) -> None:
+    enqueue_job(
+        create_simulation_log,
+        job_type=JobType.LIGHT,
+        job_prefix=JOB_PREFIXES_ENUM.SIMULATION_LOG,
+        log_payload=CreateSimulationLog(
+            simulation_id=simulation_id,
+            courier_route_id=courier_route_id,
+            courier_id=courier_id,
+            event_type=event_type,
+            title=title,
+            description=description,
+        ),
+    )
 
 
 def emit_route_initialized_event(simulation_id: str, total_arrival_events: int) -> None:
@@ -23,22 +57,114 @@ def emit_route_initialized_event(simulation_id: str, total_arrival_events: int) 
     )
 
 
-def emit_vehicle_arrived_event(simulation_id: str, courier_id: int, node_id: int) -> None:
+def emit_vehicle_departed_depot_event(
+    simulation_id: str,
+    courier_route_id: int,
+    courier_id: int,
+) -> None:
+    _enqueue_vehicle_simulation_log(
+        simulation_id=simulation_id,
+        event_type=VEHICLE_DEPARTED_DEPOT,
+        title=f"Vehicle departed depot for courier route {courier_route_id}",
+        description=f"Vehicle has departed from the depot for courier route {courier_route_id}.",
+        courier_route_id=courier_route_id,
+        courier_id=courier_id,
+    )
+
+    logger.info(
+        {
+            "event_type": "vehicle_departed_depot_emitted",
+            "simulation_id": simulation_id,
+            "courier_route_id": courier_route_id,
+            "courier_id": courier_id,
+        }
+    )
+
+
+def emit_vehicle_arrived_event(
+    simulation_id: str,
+    courier_route_id: int,
+    courier_id: int,
+    node_id: int,
+    record_log: bool = False,
+) -> None:
     publish_realtime_event(
         "VEHICLE_ARRIVED",
         {
             "simulationId": simulation_id,
+            "courierRouteId": courier_route_id,
             "courierId": courier_id,
             "nodeId": node_id,
         },
         simulation_id=simulation_id,
     )
 
+    if record_log:
+        _enqueue_vehicle_simulation_log(
+            simulation_id=simulation_id,
+            event_type=VEHICLE_ARRIVED_AT_NODE,
+            title=f"Vehicle arrived at node {node_id}",
+            description=f"Vehicle has arrived at node {node_id} for courier route {courier_route_id}.",
+            courier_route_id=courier_route_id,
+            courier_id=courier_id,
+        )
+
     logger.info(
         {
             "event_type": "vehicle_arrived_emitted",
             "simulation_id": simulation_id,
+            "courier_route_id": courier_route_id,
             "courier_id": courier_id,
             "node_id": node_id,
+        }
+    )
+
+
+def emit_vehicle_departed_node_event(
+    simulation_id: str,
+    courier_route_id: int,
+    courier_id: int,
+    node_id: int,
+) -> None:
+    _enqueue_vehicle_simulation_log(
+        simulation_id=simulation_id,
+        event_type=VEHICLE_DEPARTED_NODE,
+        title=f"Vehicle departed node {node_id}",
+        description=f"Vehicle has departed from node {node_id} for courier route {courier_route_id}.",
+        courier_route_id=courier_route_id,
+        courier_id=courier_id,
+    )
+
+    logger.info(
+        {
+            "event_type": "vehicle_departed_node_emitted",
+            "simulation_id": simulation_id,
+            "courier_route_id": courier_route_id,
+            "courier_id": courier_id,
+            "node_id": node_id,
+        }
+    )
+
+
+def emit_vehicle_returned_to_depot_event(
+    simulation_id: str,
+    courier_route_id: int,
+    courier_id: int,
+) -> None:
+    _enqueue_vehicle_simulation_log(
+        simulation_id=simulation_id,
+        event_type=VEHICLE_RETURNED_TO_DEPOT,
+        title=f"Vehicle returned to depot for courier route {courier_route_id}",
+        description=f"Vehicle has returned to the depot for courier route {courier_route_id}.",
+        courier_route_id=courier_route_id,
+        courier_id=courier_id,
+    )
+
+    logger.info(
+        {
+            "event_type": "vehicle_returned_to_depot_emitted",
+            "simulation_id": simulation_id,
+            "courier_route_id": courier_route_id,
+            "courier_id": courier_id,
         }
     )
