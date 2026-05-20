@@ -2,15 +2,16 @@ from datetime import datetime
 import asyncio
 
 from app.models.route import CreateRouteLeg, RouteStatusEnum
-from app.models.vehicle import CreateVehicleRoute
+from app.repositories.courier_route_repository import CourierRouteRepository
+from app.schemas.courier_route_schema import CreateCourierRoute
 from app.repositories.route_repository import RouteRepository
-from app.repositories.vehicle_repository import VehicleRepository
+from app.repositories.courier_repository import CourierRepository
 from app.services.tomtom_service import TomTomRouteResultResponse, TomTomService
 from app.repositories.solution_repository import SolutionRepository
 from app.repositories.node_repository import NodeRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.models.simulation import SimulationStatusEnum
-from app.services.realtime_event_service import VehicleArrivalSchedule
+from app.services.realtime_event_service import CourierArrivalSchedule
 
 class RouteService:
     ROUTE_GENERATION_SUBMISSION_DELAY_IN_SECONDS = 2
@@ -19,18 +20,20 @@ class RouteService:
                  tomtom_service: TomTomService, 
                  solution_repository: SolutionRepository,
                  node_repository: NodeRepository,
-                 vehicle_repository: VehicleRepository,
+                 courier_repository: CourierRepository,
                  route_repository: RouteRepository,
-                 simulation_repository: SimulationRepository
+                 simulation_repository: SimulationRepository,
+                 courier_route_repository: CourierRouteRepository
                  ):
         self.tomtom_service = tomtom_service
         self.solution_repository = solution_repository
         self.node_repository = node_repository
-        self.vehicle_repository = vehicle_repository
+        self.courier_repository = courier_repository
         self.route_repository = route_repository
         self.simulation_repository = simulation_repository
+        self.courier_route_repository = courier_route_repository
 
-    async def generate_routes(self, simulation_id: str, depart_at: str | None = None) -> list[VehicleArrivalSchedule]:
+    async def generate_routes(self, simulation_id: str, depart_at: str | None = None) -> list[CourierArrivalSchedule]:
         solutions = await self.solution_repository.get_solutions_by_simulation_id(simulation_id)
 
         if not solutions:
@@ -44,7 +47,7 @@ class RouteService:
         }
 
         tomtom_responses: list[TomTomRouteResultResponse] = []
-        vehicle_routes: list[CreateVehicleRoute] = []
+        courier_routes: list[CreateCourierRoute] = []
 
         for index, solution in enumerate(solutions):
 
@@ -63,10 +66,10 @@ class RouteService:
 
             summary = routes["routes"][0]["summary"]
 
-            vehicle_routes.append(
-                CreateVehicleRoute(
+            courier_routes.append(
+                CreateCourierRoute(
                     solution_id=solution.id,
-                    vehicle_id=solution.vehicle_id,
+                    courier_id=solution.courier_id,
                     route_version=1,
                     is_active=True,
                     total_distance_in_meters=summary["lengthInMeters"],
@@ -77,14 +80,14 @@ class RouteService:
             if index < len(solutions) - 1:
                 await asyncio.sleep(self.ROUTE_GENERATION_SUBMISSION_DELAY_IN_SECONDS)
 
-        vehicle_route_objects = self.vehicle_repository.bulk_insert_vehicle_routes(vehicle_routes)
+        courier_route_objects = self.courier_route_repository.bulk_insert_courier_routes(courier_routes)
 
         route_legs: list[CreateRouteLeg] = []
-        arrival_schedules: list[VehicleArrivalSchedule] = []
+        arrival_schedules: list[CourierArrivalSchedule] = []
 
         for i, solution in enumerate(solutions):
 
-            vehicle_route = vehicle_route_objects[i]
+            courier_route = courier_route_objects[i]
             routes = tomtom_responses[i]
 
             legs = routes["routes"][0]["legs"]
@@ -102,7 +105,7 @@ class RouteService:
 
                 route_legs.append(
                     CreateRouteLeg(
-                        vehicle_route_id=vehicle_route.id,
+                        courier_route_id=courier_route.id,
                         origin_latitude=origin_node.latitude,
                         origin_longitude=origin_node.longitude,
                         destination_latitude=destination_node.latitude,
@@ -130,7 +133,7 @@ class RouteService:
                 arrival_schedules.append(
                     {
                         "simulation_id": simulation_id,
-                        "vehicle_id": int(solution.vehicle_id),
+                        "courier_id": int(solution.courier_id),
                         "node_id": int(destination_node.id),
                         "eta_seconds": cumulative_travel_time_seconds,
                     }
@@ -141,15 +144,15 @@ class RouteService:
         await self.simulation_repository.update_simulation_fields(
             simulation_id,
             {
-                "total_distance_in_meters": sum(route.total_distance_in_meters for route in vehicle_routes),
-                "total_duration_in_seconds": sum(route.total_time_in_seconds for route in vehicle_routes),
-                "total_vehicles": len(vehicle_routes),
-                "total_active_vehicles": sum(1 for route in vehicle_routes if route.is_active),
+                "total_distance_in_meters": sum(route.total_distance_in_meters for route in courier_routes),
+                "total_duration_in_seconds": sum(route.total_time_in_seconds for route in courier_routes),
+                "total_couriers": len(courier_routes),
+                "total_active_couriers": sum(1 for route in courier_routes if route.is_active),
             },
         )
         
         await self.simulation_repository.update_simulation_status(simulation_id, SimulationStatusEnum.running)
 
-        self.vehicle_repository.db.commit()
+        self.courier_repository.db.commit()
 
         return arrival_schedules

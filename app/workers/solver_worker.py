@@ -4,7 +4,7 @@ from app.services.solver_service import SolverService
 from app.services.matrix_service import MatrixService
 from app.repositories.matrix_repository import MatrixRepository
 from app.repositories.node_repository import NodeRepository
-from app.repositories.vehicle_repository import VehicleRepository
+from app.repositories.courier_repository import CourierRepository
 from app.services.tomtom_service import TomTomService
 from app.lib.db import get_db
 from app.lib.logging.logging import get_logger
@@ -20,7 +20,7 @@ async def get_solution(simulation_id: str):
                     tomtom_service = TomTomService(),
                     simulation_repository=SimulationRepository(next(get_db())),
                 ),
-                vehicle_repository = VehicleRepository(next(get_db())),
+                courier_repository = CourierRepository(next(get_db())),
                 node_repository = NodeRepository(next(get_db())),
                 solution_repository = SolutionRepository(next(get_db())
                 ),

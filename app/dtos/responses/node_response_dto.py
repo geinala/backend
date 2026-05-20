@@ -6,7 +6,6 @@ class NodeResponseDTO(BaseModel):
     latitude: float
     longitude: float
     demand: float
-    is_depot: int
     details: list["NodeDetailDTO"] | None
 
 class NodeDetailDTO(BaseModel):

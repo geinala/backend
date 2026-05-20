@@ -8,7 +8,11 @@ class SimulationJobUploadedFileErrorRepository:
         self.db = db
         
     async def insert_uploaded_file_errors(self, errors: list[SimulationJobUploadedFileErrorCreate]):
-        error_objects = [error.model_dump() for error in errors]
-        self.db.execute(SimulationJobUploadedFileError.__table__.insert(), error_objects)
-        self.db.commit()
+        try:
+            error_objects = [error.model_dump() for error in errors]
+            self.db.execute(SimulationJobUploadedFileError.__table__.insert(), error_objects)
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
         

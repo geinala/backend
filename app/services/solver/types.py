@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 
-from app.models.vehicle import Vehicle
+from app.models.courier import Courier
 
 
 @dataclass(slots=True)
 class Route:
-    vehicle_id: int
+    courier_id: int
     route: list[int]
     load: int
     time: int
@@ -15,11 +15,6 @@ class Route:
 class SolverProblem:
     time_matrix: list[list[int]]
     demands: list[int]
-    vehicle_capacities: list[int]
-    vehicles: list[Vehicle]
+    courier: Courier
     time_limit_seconds: int = 60
     depot_index: int = 0
-
-    @property
-    def num_vehicles(self) -> int:
-        return len(self.vehicles)

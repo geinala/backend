@@ -8,15 +8,15 @@ from app.models.node import Node
 from app.models.simulation import Simulation, SimulationStatusEnum
 from app.models.solution import Solution
 from app.models.route import CreateRouteLeg, RouteLeg, RouteStatusEnum
-from app.models.vehicle import VehicleRoute
+from app.models.courier_route import CourierRoute
 
 
 class DueArrivalEvent(TypedDict):
     route_leg_id: int
     simulation_id: str
-    vehicle_id: int
+    courier_id: int
     node_id: int
-    vehicle_route_id: int
+    courier_route_id: int
     sequence: int
 
 
@@ -43,13 +43,13 @@ class RouteRepository:
             self.db.query(
                 RouteLeg.id,
                 Solution.simulation_id,
-                VehicleRoute.vehicle_id,
+                CourierRoute.courier_id,
                 Node.id,
-                RouteLeg.vehicle_route_id,
+                RouteLeg.courier_route_id,
                 RouteLeg.sequence,
             )
-            .join(VehicleRoute, VehicleRoute.id == RouteLeg.vehicle_route_id)
-            .join(Solution, Solution.id == VehicleRoute.solution_id)
+            .join(CourierRoute, CourierRoute.id == RouteLeg.courier_route_id)
+            .join(Solution, Solution.id == CourierRoute.solution_id)
             .join(Simulation, Simulation.id == Solution.simulation_id)
             .outerjoin(
                 Node,
@@ -62,7 +62,7 @@ class RouteRepository:
             .filter(Simulation.status == SimulationStatusEnum.running)
             .filter(RouteLeg.arrival_time <= reference_time)
             .filter(RouteLeg.route_status.in_([RouteStatusEnum.planned, RouteStatusEnum.running]))
-            .order_by(Solution.simulation_id.asc(), VehicleRoute.vehicle_id.asc(), RouteLeg.sequence.asc())
+            .order_by(Solution.simulation_id.asc(), CourierRoute.courier_id.asc(), RouteLeg.sequence.asc())
             .all()
         )
 
@@ -70,9 +70,9 @@ class RouteRepository:
             {
                 "route_leg_id": int(row[0]),
                 "simulation_id": str(row[1]),
-                "vehicle_id": int(row[2]),
+                "courier_id": int(row[2]),
                 "node_id": int(row[3]) if row[3] is not None else -1,
-                "vehicle_route_id": int(row[4]),
+                "courier_route_id": int(row[4]),
                 "sequence": int(row[5]),
             }
             for row in rows
@@ -87,10 +87,10 @@ class RouteRepository:
         route_leg.route_status = RouteStatusEnum.completed
         return True
 
-    def promote_next_route_leg_to_in_progress(self, vehicle_route_id: int, current_sequence: int) -> bool:
+    def promote_next_route_leg_to_in_progress(self, courier_route_id: int, current_sequence: int) -> bool:
         next_leg = (
             self.db.query(RouteLeg)
-            .filter(RouteLeg.vehicle_route_id == vehicle_route_id)
+            .filter(RouteLeg.courier_route_id == courier_route_id)
             .filter(RouteLeg.sequence > current_sequence)
             .filter(RouteLeg.route_status == RouteStatusEnum.planned)
             .order_by(RouteLeg.sequence.asc())

@@ -10,7 +10,7 @@ class SolutionRepository:
         new_solutions = [
             Solution(
                 simulation_id=solution_data.simulation_id,
-                vehicle_id=solution_data.vehicle_id,
+                courier_id=solution_data.courier_id,
                 routes=solution_data.routes,
                 demand_in_kilograms=solution_data.demand_in_kilograms,
                 time_in_seconds=solution_data.time_in_seconds
@@ -24,7 +24,7 @@ class SolutionRepository:
     async def insert_solution(self, solution_data: CreateSolution):
         new_solution: Solution = Solution(
             simulation_id=solution_data.simulation_id,
-            vehicle_id=solution_data.vehicle_id,
+            courier_id=solution_data.courier_id,
             routes=solution_data.routes,
             demand_in_kilograms=solution_data.demand_in_kilograms,
             time_in_seconds=solution_data.time_in_seconds

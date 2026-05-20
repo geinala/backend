@@ -2,15 +2,16 @@ import time
 from rq import get_current_job
 
 from app.lib.db import get_db
+from app.repositories.courier_route_repository import CourierRouteRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.services.route_service import RouteService
 from app.services.tomtom_service import TomTomService
 from app.repositories.solution_repository import SolutionRepository
 from app.repositories.node_repository import NodeRepository
-from app.repositories.vehicle_repository import VehicleRepository
+from app.repositories.courier_repository import CourierRepository
 from app.repositories.route_repository import RouteRepository
 from app.lib.logging.logging import get_logger
-from app.services.realtime_event_service import schedule_vehicle_arrival_events
+from app.services.realtime_event_service import schedule_courier_arrival_events
 from app.workers.events_worker import emit_route_initialized_event
 
 logger = get_logger()
@@ -33,16 +34,17 @@ async def generate_routes(simulation_id: str, depart_at: str | None = None):
             tomtom_service=TomTomService(), 
             solution_repository=SolutionRepository(db), 
             node_repository=NodeRepository(db),
-            vehicle_repository=VehicleRepository(db),
+            courier_repository=CourierRepository(db),
             route_repository=RouteRepository(db),
-            simulation_repository=SimulationRepository(db)
+            simulation_repository=SimulationRepository(db),
+            courier_route_repository=CourierRouteRepository(db)
             )
 
         wide_event["stage"] = "generating_routes"
         
         arrival_schedules = await route_service.generate_routes(simulation_id, depart_at)
 
-        scheduled_count = schedule_vehicle_arrival_events(arrival_schedules)
+        scheduled_count = schedule_courier_arrival_events(arrival_schedules)
         emit_route_initialized_event(simulation_id, scheduled_count)
         
         wide_event["status"] = "success"

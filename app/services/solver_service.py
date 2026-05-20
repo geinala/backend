@@ -5,11 +5,12 @@ from ortools.constraint_solver import pywrapcp
 
 from app.lib.logging.logging import get_logger
 from app.models.solution import CreateSolution
-from app.models.vehicle import Vehicle
+from app.models.courier import Courier
+from app.models.node import Node
 from app.repositories.node_repository import NodeRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.repositories.solution_repository import SolutionRepository
-from app.repositories.vehicle_repository import VehicleRepository
+from app.repositories.courier_repository import CourierRepository
 from app.services.matrix_service import MatrixService
 from app.services.solver import GreedySolver, Route, SolverProblem, TabuSearchSolver
 
@@ -22,54 +23,70 @@ class SolverService:
     def __init__(
         self,
         matrix_service: MatrixService,
-        vehicle_repository: VehicleRepository,
+        courier_repository: CourierRepository,
         node_repository: NodeRepository,
         solution_repository: SolutionRepository,
         simulation_repository: SimulationRepository,
     ):
         self.matrix_service = matrix_service
-        self.vehicle_repository = vehicle_repository
+        self.courier_repository = courier_repository
         self.node_repository = node_repository
         self.solution_repository = solution_repository
         self.simulation_repository = simulation_repository
 
     async def solve(self, simulation_id: str, algorithm: SolverAlgorithm = "tabu_search"):
         time_matrix = await self.matrix_service.build_time_matrix(simulation_id)
-        vehicles = self.vehicle_repository.get_all_active_vehicles_by_simulation_id(simulation_id)
-        vehicle_capacities = self._mapped_vehicle_constraints(vehicles, simulation_id)
-        demands = self._get_demands(simulation_id)
+        couriers = self.courier_repository.get_all_active_couriers_by_simulation_id(simulation_id)
+        all_nodes = self.node_repository.get_nodes_by_simulation_id(simulation_id)
+        nodes_by_index = {node.matrix_index: node for node in all_nodes}
+        solutions: list[CreateSolution] = []
 
-        problem = SolverProblem(
-            time_matrix=time_matrix,
-            demands=demands,
-            vehicle_capacities=vehicle_capacities,
-            vehicles=vehicles,
-        )
+        for courier in couriers:
+            courier_nodes = self.node_repository.get_nodes_by_simulation_id_and_courier_id(simulation_id, courier.id)
 
-        manager, routing, solution = self._get_solver(algorithm).solve(problem)
+            if not courier_nodes:
+                logger.info(f"Courier {courier.id} - {courier.name} has no assigned nodes, skipping")
+                continue
 
-        if not solution:
-            raise Exception("No solution found for the given optimization problem.")
+            selected_node_indices = self._build_courier_node_indices(simulation_id, courier_nodes, nodes_by_index)
+            submatrix = self._build_submatrix(time_matrix, selected_node_indices)
+            demands = [self._conversion_demand_to_grams(nodes_by_index[node_index].demand) for node_index in selected_node_indices]
+            route_capacity = sum(demands)
 
-        routes = self._parse_solution(manager, routing, solution, demands, vehicles)
-        solutions = [
-            CreateSolution(
-                routes=route.route,
-                demand_in_kilograms=route.load / 1000,
-                time_in_seconds=route.time,
-                vehicle_id=route.vehicle_id,
-                simulation_id=simulation_id,
+            logger.info(
+                f"Courier {courier.id} - {courier.name} has {len(selected_node_indices) - 1} assigned nodes and "
+                f"route demand of {route_capacity / 1000:.3f} kg"
             )
-            for route in routes
-        ]
+
+            problem = SolverProblem(
+                time_matrix=submatrix,
+                demands=demands,
+                courier=courier,
+            )
+
+            manager, routing, solution = self._get_solver(algorithm).solve(problem)
+
+            if not solution:
+                raise Exception(f"No solution found for courier {courier.id} in simulation {simulation_id}.")
+
+            route = self._parse_solution(manager, routing, solution, demands, selected_node_indices, courier)
+            solutions.append(
+                CreateSolution(
+                    routes=route.route,
+                    demand_in_kilograms=route.load / 1000,
+                    time_in_seconds=route.time,
+                    courier_id=route.courier_id,
+                    simulation_id=simulation_id,
+                )
+            )
 
         await self.solution_repository.bulk_insert_solutions(solutions)
         await self.simulation_repository.update_simulation_fields(
             simulation_id,
             {
                 "total_demand_in_kilograms": sum(solution.demand_in_kilograms for solution in solutions),
-                "total_vehicles": len(solutions),
-                "total_active_vehicles": len(solutions),
+                "total_couriers": len(solutions),
+                "total_active_couriers": len(solutions),
             },
         )
 
@@ -94,49 +111,50 @@ class SolverService:
         routing: pywrapcp.RoutingModel,
         solution: pywrapcp.Assignment,
         demands: list[int],
-        vehicles: list[Vehicle],
-    ) -> list[Route]:
-        routes: list[Route] = []
+        selected_node_indices: list[int],
+        courier: Courier,
+    ) -> Route:
+        index = routing.Start(0)
+        route_load = 0
+        route_time = 0
+        route_nodes: list[int] = []
 
-        for vehicle_index, vehicle in enumerate(vehicles):
-            index = routing.Start(vehicle_index)
-            route_load = 0
-            route_time = 0
-            route_nodes: list[int] = []
+        while not routing.IsEnd(index):
+            node_index = manager.IndexToNode(index)
+            route_load += demands[node_index]
+            route_nodes.append(selected_node_indices[node_index])
 
-            while not routing.IsEnd(index):
-                node_index = manager.IndexToNode(index)
-                route_load += demands[node_index]
-                route_nodes.append(node_index)
+            previous_index = index
+            index = solution.Value(routing.NextVar(index))
+            route_time += routing.GetArcCostForVehicle(previous_index, index, 0)
 
-                previous_index = index
-                index = solution.Value(routing.NextVar(index))
-                route_time += routing.GetArcCostForVehicle(previous_index, index, vehicle_index)
+        route_nodes.append(selected_node_indices[manager.IndexToNode(index)])
 
-            route_nodes.append(manager.IndexToNode(index))
+        return Route(
+            courier_id=courier.id,
+            route=route_nodes,
+            load=route_load,
+            time=route_time,
+        )
 
-            routes.append(
-                Route(
-                    vehicle_id=vehicle.id,
-                    route=route_nodes,
-                    load=route_load,
-                    time=route_time,
-                )
-            )
+    def _build_courier_node_indices(
+        self,
+        simulation_id: str,
+        courier_nodes: list[Node],
+        nodes_by_index: dict[int, Node],
+    ) -> list[int]:
+        if 0 not in nodes_by_index:
+            raise Exception(f"Depot node is missing for simulation {simulation_id}.")
 
-        return routes
+        node_indices = [0]
+        node_indices.extend(sorted(node.matrix_index for node in courier_nodes))
+        return node_indices
 
-    def _mapped_vehicle_constraints(self, active_vehicles: list[Vehicle], simulation_id: str) -> list[int]:
-        logger.info(f"Active vehicles for simulation {simulation_id}: {[vehicle.id for vehicle in active_vehicles]}")
-        return [self._conversion_vehicle_capacity_to_grams(vehicle.max_capacity) for vehicle in active_vehicles]
-
-    def _get_demands(self, simulation_id: str) -> list[int]:
-        nodes = self.node_repository.get_nodes_by_simulation_id(simulation_id)
-        nodes_sorted = sorted(nodes, key=lambda n: n.matrix_index)
-        return [self._conversion_demand_to_grams(node.demand) for node in nodes_sorted]
-
-    def _conversion_vehicle_capacity_to_grams(self, vehicle_capacity: float) -> int:
-        return round(vehicle_capacity * 1000)
+    def _build_submatrix(self, time_matrix: list[list[int]], node_indices: list[int]) -> list[list[int]]:
+        return [
+            [time_matrix[origin_index][destination_index] for destination_index in node_indices]
+            for origin_index in node_indices
+        ]
 
     def _conversion_demand_to_grams(self, demand: float) -> int:
         return round(demand * 1000)

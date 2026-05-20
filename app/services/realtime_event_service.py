@@ -13,9 +13,9 @@ GLOBAL_EVENTS_CHANNEL = f"{EVENTS_CHANNEL_PREFIX}:global"
 logger = get_logger(__name__)
 
 
-class VehicleArrivalSchedule(TypedDict):
+class CourierArrivalSchedule(TypedDict):
     simulation_id: str
-    vehicle_id: int
+    courier_id: int
     node_id: int
     eta_seconds: int
 
@@ -55,7 +55,7 @@ def publish_realtime_event(
         )
 
 
-def schedule_vehicle_arrival_events(arrivals: list[VehicleArrivalSchedule]) -> int:
+def schedule_courier_arrival_events(arrivals: list[CourierArrivalSchedule]) -> int:
     if not arrivals:
         return 0
 
@@ -68,14 +68,14 @@ def schedule_vehicle_arrival_events(arrivals: list[VehicleArrivalSchedule]) -> i
             timedelta(seconds=eta_seconds),
             "app.workers.events_worker.emit_vehicle_arrived_event",
             simulation_id=arrival["simulation_id"],
-            vehicle_id=arrival["vehicle_id"],
+            courier_id=arrival["courier_id"],
             node_id=arrival["node_id"],
         )
         scheduled_count += 1
 
     logger.info(
         {
-            "event_type": "vehicle_arrival_events_scheduled",
+            "event_type": "courier_arrival_events_scheduled",
             "scheduled_count": scheduled_count,
         }
     )

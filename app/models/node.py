@@ -1,7 +1,5 @@
-from typing import TypedDict
 import uuid
 
-from pydantic import BaseModel
 from sqlalchemy import UUID, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from app.lib.db import Base
@@ -15,13 +13,17 @@ class Node(Base):
         ForeignKey("simulations.id"),
         nullable=True,
     )
+    courier_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("couriers.id"),
+        nullable=True,
+        index=True,
+    )
     
     matrix_index: Mapped[int] = mapped_column(Integer, nullable=False)
-
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     demand: Mapped[float] = mapped_column(Float, nullable=False)
-    is_depot: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     details = relationship(
         "NodeDetail",
@@ -44,23 +46,6 @@ class NodeDetail(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     address: Mapped[str] = mapped_column(String, nullable=False)
     city: Mapped[str] = mapped_column(String, nullable=False)
-    district: Mapped[str] = mapped_column(String, nullable=False)
     weight: Mapped[float] = mapped_column(Float, nullable=False)
 
     node = relationship("Node", back_populates="details")
-
-
-class NodeDetailCreate(BaseModel):
-    name: str
-    address: str
-    city: str
-    district: str
-    weight: float
-
-
-class GroupedNodeData(TypedDict):
-    latitude: float
-    longitude: float
-    total_demand: float
-    matrix_index: int
-    details: list[NodeDetailCreate]

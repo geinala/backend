@@ -39,7 +39,7 @@ def process_running_simulation_arrivals() -> dict[str, int]:
 
             transitioned_arrivals.append(arrival)
             route_repository.promote_next_route_leg_to_in_progress(
-                vehicle_route_id=arrival["vehicle_route_id"],
+                courier_route_id=arrival["courier_route_id"],
                 current_sequence=arrival["sequence"],
             )
 
@@ -52,7 +52,7 @@ def process_running_simulation_arrivals() -> dict[str, int]:
 
             emit_vehicle_arrived_event(
                 simulation_id=arrival["simulation_id"],
-                vehicle_id=arrival["vehicle_id"],
+                courier_id=arrival["courier_id"],
                 node_id=arrival["node_id"],
             )
             emitted_count += 1

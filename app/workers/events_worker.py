@@ -23,12 +23,12 @@ def emit_route_initialized_event(simulation_id: str, total_arrival_events: int) 
     )
 
 
-def emit_vehicle_arrived_event(simulation_id: str, vehicle_id: int, node_id: int) -> None:
+def emit_vehicle_arrived_event(simulation_id: str, courier_id: int, node_id: int) -> None:
     publish_realtime_event(
         "VEHICLE_ARRIVED",
         {
             "simulationId": simulation_id,
-            "vehicleId": vehicle_id,
+            "courierId": courier_id,
             "nodeId": node_id,
         },
         simulation_id=simulation_id,
@@ -38,7 +38,7 @@ def emit_vehicle_arrived_event(simulation_id: str, vehicle_id: int, node_id: int
         {
             "event_type": "vehicle_arrived_emitted",
             "simulation_id": simulation_id,
-            "vehicle_id": vehicle_id,
+            "courier_id": courier_id,
             "node_id": node_id,
         }
     )

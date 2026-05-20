@@ -18,7 +18,7 @@ class RouteLeg(Base):
     __tablename__ = 'route_legs'
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    vehicle_route_id: Mapped[int] = mapped_column(Integer, ForeignKey('vehicle_routes.id'), nullable=False)
+    courier_route_id: Mapped[int] = mapped_column(Integer, ForeignKey('courier_routes.id'), nullable=False)
     origin_latitude: Mapped[float] = mapped_column(Float, nullable=False)
     origin_longitude: Mapped[float] = mapped_column(Float, nullable=False)
     destination_latitude: Mapped[float] = mapped_column(Float, nullable=False)
@@ -43,7 +43,7 @@ class RouteLeg(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     
 class CreateRouteLeg(BaseModel):
-    vehicle_route_id: int
+    courier_route_id: int
     origin_latitude: float
     origin_longitude: float
     destination_latitude: float

@@ -1,9 +1,20 @@
 from sqlalchemy.orm import Session, joinedload
-from app.models.node import Node, NodeDetail, NodeDetailCreate
+from app.models.node import Node, NodeDetail
+from app.schemas.node_detail_schema import NodeDetailCreate
 
 class NodeRepository:
     def __init__(self, db: Session):
         self.db = db
+
+    def create_node(self, node: Node):
+        try:
+            self.db.add(node)
+            self.db.commit()
+            self.db.refresh(node)
+            return node
+        except Exception:
+            self.db.rollback()
+            raise
 
     def create_nodes_with_grouped_details(
         self,
@@ -31,6 +42,12 @@ class NodeRepository:
 
     def get_nodes_by_simulation_id(self, simulation_id: str) -> list[Node]:
         return self.db.query(Node).filter(Node.simulation_id == simulation_id).all()
+
+    def get_nodes_by_simulation_id_and_courier_id(self, simulation_id: str, courier_id: int) -> list[Node]:
+        return self.db.query(Node).filter(
+            Node.simulation_id == simulation_id,
+            Node.courier_id == courier_id,
+        ).all()
 
     def get_nodes_with_details_by_simulation_id(self, simulation_id: str) -> list[Node]:
         return self.db.query(Node).options(

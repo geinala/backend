@@ -1,3 +1,6 @@
+# pyright: basic
+from typing import Any
+
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
 from app.services.solver.base import BaseSolverStrategy
@@ -20,7 +23,7 @@ class OrToolsSolverStrategy(BaseSolverStrategy):
     ) -> tuple[pywrapcp.RoutingIndexManager, pywrapcp.RoutingModel, pywrapcp.Assignment | None]:
         manager = pywrapcp.RoutingIndexManager(
             len(problem.time_matrix),
-            problem.num_vehicles,
+            1,
             problem.depot_index,
         )
         routing = pywrapcp.RoutingModel(manager)
@@ -36,7 +39,7 @@ class OrToolsSolverStrategy(BaseSolverStrategy):
 
         return manager, routing, solution
 
-    def _build_search_parameters(self, time_limit_seconds: int) -> pywrapcp.DefaultRoutingSearchParameters:
+    def _build_search_parameters(self, time_limit_seconds: int) -> Any:
         search_parameters = pywrapcp.DefaultRoutingSearchParameters()
         search_parameters.first_solution_strategy = self.first_solution_strategy
 
@@ -74,7 +77,7 @@ class OrToolsSolverStrategy(BaseSolverStrategy):
         routing.AddDimensionWithVehicleCapacity(
             demand_callback_index,
             0,
-            problem.vehicle_capacities,
+            [max(sum(problem.demands), 1)],
             True,
             "Capacity",
         )
@@ -105,7 +108,6 @@ class OrToolsSolverStrategy(BaseSolverStrategy):
                 25200,
                 1000,
             )
-
 
 def build_greedy_solver() -> OrToolsSolverStrategy:
     return OrToolsSolverStrategy(
