@@ -214,7 +214,7 @@ class MatrixService:
         return mapped_results
 
     def _get_all_nodes(self, simulation_id: str):
-        return self.node_repository.get_nodes_with_details_by_simulation_id(simulation_id)
+        return self.node_repository.get_nodes_by_simulation_id(simulation_id)
     
     def _split_nodes_by_matrix(self, nodes: list[Node], matrix_size: int = 50) -> list[tuple[list[Node], list[Node]]]:
         chunks = [nodes[i:i + matrix_size] for i in range(0, len(nodes), matrix_size)]
