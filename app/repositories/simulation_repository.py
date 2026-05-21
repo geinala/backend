@@ -10,6 +10,14 @@ logger = get_logger(__name__)
 class SimulationRepository:
     def __init__(self, db: Session): 
         self.db = db
+
+    def get_running_simulations(self) -> list[Simulation]:
+        return (
+            self.db.query(Simulation)
+            .filter(Simulation.status == SimulationStatusEnum.running)
+            .order_by(Simulation.started_at.asc().nullslast(), Simulation.created_at.asc())
+            .all()
+        )
         
     async def get_simulation_by_id(self, simulation_id: str) -> Simulation | None:
         result = self.db.query(Simulation).filter(Simulation.id == simulation_id).first()
