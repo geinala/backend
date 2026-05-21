@@ -6,6 +6,7 @@ from rq import get_current_job
 from app.lib.db import get_db
 from app.lib.logging.logging import get_logger
 from app.repositories.route_repository import DueArrivalEvent, RouteRepository
+from app.repositories.simulation_repository import SimulationRepository
 from app.workers.events_worker import (
     emit_vehicle_arrived_event,
     emit_vehicle_departed_node_event,
@@ -13,7 +14,6 @@ from app.workers.events_worker import (
 )
 
 logger = get_logger(__name__)
-
 
 def process_running_simulation_arrivals() -> dict[str, int]:
     job = get_current_job()
@@ -30,6 +30,7 @@ def process_running_simulation_arrivals() -> dict[str, int]:
 
     try:
         route_repository = RouteRepository(db)
+        simulation_repository = SimulationRepository(db)
         due_arrivals = route_repository.get_due_arrival_events_for_running_simulations(
             datetime.now(timezone.utc)
         )
@@ -44,6 +45,11 @@ def process_running_simulation_arrivals() -> dict[str, int]:
             has_next_leg = route_repository.promote_next_route_leg_to_in_progress(
                 courier_route_id=arrival["courier_route_id"],
                 current_sequence=arrival["sequence"],
+            )
+
+            simulation_repository.apply_arrival_progress(
+                simulation_id=arrival["simulation_id"],
+                has_next_leg=has_next_leg,
             )
             transitioned_arrivals.append((arrival, has_next_leg))
 

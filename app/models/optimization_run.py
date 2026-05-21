@@ -24,6 +24,7 @@ class OptimizationRun(Base):
     total_distance_in_meters: Mapped[int] = mapped_column(Integer, nullable=False)
     total_travel_time_in_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     computation_time_in_ms: Mapped[float] = mapped_column(Float, nullable=False)
+    total_nodes_explored: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     simulation: Mapped["Simulation"] = relationship("Simulation")

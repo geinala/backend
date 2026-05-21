@@ -12,6 +12,6 @@ class CreateOptimizationRun(BaseModel):
     total_distance_in_meters: int
     total_travel_time_in_seconds: int
     computation_time_in_ms: float
-
+    total_nodes_explored: int
     class Config:
         from_attributes = True

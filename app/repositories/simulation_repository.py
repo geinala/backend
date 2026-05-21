@@ -36,3 +36,24 @@ class SimulationRepository:
         self.db.commit()
         self.db.refresh(simulation)
         return simulation
+
+    def apply_arrival_progress(self, simulation_id: str, has_next_leg: bool) -> Simulation | None:
+        simulation = self.db.query(Simulation).filter(Simulation.id == simulation_id).first()
+        if not simulation:
+            return None
+
+        simulation.total_completed_nodes += 1
+
+        if not has_next_leg:
+            simulation.total_active_couriers = max(simulation.total_active_couriers - 1, 0)
+
+        if simulation.total_active_couriers == 0:
+            simulation.status = SimulationStatusEnum.completed
+            if simulation.completed_at is None:
+                from datetime import datetime, timezone
+
+                simulation.completed_at = datetime.now(timezone.utc)
+
+        self.db.commit()
+        self.db.refresh(simulation)
+        return simulation

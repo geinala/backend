@@ -23,6 +23,21 @@ class DueArrivalEvent(TypedDict):
 class RouteRepository:
     def __init__(self, db: Session):
         self.db = db
+
+    @staticmethod
+    def _deduplicate_due_arrival_events(rows: list[DueArrivalEvent]) -> list[DueArrivalEvent]:
+        unique_rows: list[DueArrivalEvent] = []
+        seen_route_leg_ids: set[int] = set()
+
+        for row in rows:
+            route_leg_id = row["route_leg_id"]
+            if route_leg_id in seen_route_leg_ids:
+                continue
+
+            seen_route_leg_ids.add(route_leg_id)
+            unique_rows.append(row)
+
+        return unique_rows
         
     def bulk_insert_route_legs(self, route_legs: list[CreateRouteLeg]):
         objects: list[RouteLeg] = []
@@ -66,7 +81,7 @@ class RouteRepository:
             .all()
         )
 
-        return [
+        events: list[DueArrivalEvent] = [
             {
                 "route_leg_id": int(row[0]),
                 "simulation_id": str(row[1]),
@@ -77,6 +92,8 @@ class RouteRepository:
             }
             for row in rows
         ]
+
+        return self._deduplicate_due_arrival_events(events)
 
     def mark_route_leg_as_visited(self, route_leg_id: int) -> bool:
         route_leg = self.db.query(RouteLeg).filter(RouteLeg.id == route_leg_id).first()

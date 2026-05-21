@@ -28,7 +28,6 @@ class RouteSummary(TypedDict):
     lengthInMeters: int
     travelTimeInSeconds: int
 
-
 class RouteBuild(TypedDict):
     solution: Solution
     courier: Courier
@@ -37,7 +36,7 @@ class RouteBuild(TypedDict):
     tabu_summary: RouteSummary
     greedy_computation_time_in_ms: float
     tabu_computation_time_in_ms: float
-
+    nodes_explored: int
 class RouteService:
     ROUTE_GENERATION_SUBMISSION_DELAY_IN_SECONDS = 2
     
@@ -147,6 +146,7 @@ class RouteService:
                     "tabu_summary": tabu_summary,
                     "greedy_computation_time_in_ms": greedy_computation_time_in_ms,
                     "tabu_computation_time_in_ms": tabu_computation_time_in_ms,
+                    "nodes_explored": len(tabu_route.route),
                 }
             )
             
@@ -169,6 +169,7 @@ class RouteService:
                         total_distance_in_meters=route_build["greedy_summary"]["lengthInMeters"],
                         total_travel_time_in_seconds=route_build["greedy_summary"]["travelTimeInSeconds"],
                         computation_time_in_ms=route_build["greedy_computation_time_in_ms"],
+                        total_nodes_explored=route_build["nodes_explored"],
                     ),
                     CreateOptimizationRun(
                         simulation_id=route_build["solution"].simulation_id,
@@ -179,6 +180,7 @@ class RouteService:
                         total_distance_in_meters=route_build["tabu_summary"]["lengthInMeters"],
                         total_travel_time_in_seconds=route_build["tabu_summary"]["travelTimeInSeconds"],
                         computation_time_in_ms=route_build["tabu_computation_time_in_ms"],
+                        total_nodes_explored=route_build["nodes_explored"],
                     ),
                 ]
             )
@@ -252,6 +254,7 @@ class RouteService:
             {
                 "total_distance_in_meters": sum(route.total_distance_in_meters for route in courier_routes),
                 "total_duration_in_seconds": sum(route.total_time_in_seconds for route in courier_routes),
+                "total_nodes": len(nodes),
                 "total_couriers": len(courier_routes),
                 "total_active_couriers": sum(1 for route in courier_routes if route.is_active),
             },

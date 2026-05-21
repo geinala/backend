@@ -19,6 +19,7 @@ class OptimizationRunRepository:
                 total_distance_in_meters=optimization_run.total_distance_in_meters,
                 total_travel_time_in_seconds=optimization_run.total_travel_time_in_seconds,
                 computation_time_in_ms=optimization_run.computation_time_in_ms,
+                total_nodes_explored=optimization_run.total_nodes_explored,
             )
             for optimization_run in optimization_runs
         ]
