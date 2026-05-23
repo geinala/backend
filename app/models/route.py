@@ -19,6 +19,8 @@ class RouteLeg(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     courier_route_id: Mapped[int] = mapped_column(Integer, ForeignKey('courier_routes.id'), nullable=False)
+    from_node_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    to_node_id: Mapped[int] = mapped_column(Integer, nullable=False)
     origin_latitude: Mapped[float] = mapped_column(Float, nullable=False)
     origin_longitude: Mapped[float] = mapped_column(Float, nullable=False)
     destination_latitude: Mapped[float] = mapped_column(Float, nullable=False)
@@ -44,6 +46,8 @@ class RouteLeg(Base):
     
 class CreateRouteLeg(BaseModel):
     courier_route_id: int
+    from_node_id: int
+    to_node_id: int
     origin_latitude: float
     origin_longitude: float
     destination_latitude: float

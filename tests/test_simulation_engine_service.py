@@ -35,7 +35,7 @@ def test_tick_once_publishes_interpolated_tick(monkeypatch):
         id="sim-123",
         status=SimpleNamespace(value="running"),
         started_at=datetime(2026, 5, 21, 12, 0, tzinfo=timezone.utc),
-        total_duration_in_seconds=100,
+        initial_total_duration_in_seconds=100,
         total_completed_nodes=20,
         total_nodes=40,
         total_active_couriers=3,

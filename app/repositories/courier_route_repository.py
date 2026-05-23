@@ -21,6 +21,7 @@ class CourierRouteRepository:
                 reoptimized_from_route_id=route.reoptimized_from_route_id,
                 trigger_node_id=route.trigger_node_id,
                 triggered_by_traffic=route.triggered_by_traffic,
+                is_initial_route=route.is_initial_route,
             )
             for route in courier_routes
         ]

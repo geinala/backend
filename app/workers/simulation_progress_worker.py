@@ -1,107 +1,42 @@
-import time
 from datetime import datetime, timezone
 
 from rq import get_current_job
 
 from app.lib.db import get_db
-from app.lib.logging.logging import get_logger
-from app.repositories.route_repository import DueArrivalEvent, RouteRepository
+from app.repositories.node_repository import NodeRepository
+from app.repositories.route_leg_congestion_check_repository import RouteLegCongestionCheckRepository
+from app.repositories.route_repository import RouteRepository
 from app.repositories.simulation_repository import SimulationRepository
-from app.workers.events_worker import (
-    emit_vehicle_arrived_event,
-    emit_vehicle_departed_node_event,
-    emit_vehicle_returned_to_depot_event,
-)
-
-logger = get_logger(__name__)
+from app.repositories.traffic_incident_repository import TrafficIncidentRepository
+from app.services.simulation_progress_service import SimulationProgressService
+from app.services.tomtom_service import TomTomService
 
 def process_running_simulation_arrivals() -> dict[str, int]:
     job = get_current_job()
-    start_time = time.time()
-
-    wide_event: dict[str, object] = {
-        "event_type": "worker_process_running_simulation_arrivals",
-        "job_id": job.id if job else None,
-        "status": "processing",
-    }
 
     db_session = get_db()
     db = next(db_session)
 
+    service = SimulationProgressService(
+        route_repository=RouteRepository(db),
+        route_leg_congestion_check_repository=RouteLegCongestionCheckRepository(db),
+        node_repository=NodeRepository(db),
+        simulation_repository=SimulationRepository(db),
+        traffic_incident_repository=TrafficIncidentRepository(db),
+        tomtom_service=TomTomService(),
+    )
+
     try:
-        route_repository = RouteRepository(db)
-        simulation_repository = SimulationRepository(db)
-        due_arrivals = route_repository.get_due_arrival_events_for_running_simulations(
-            datetime.now(timezone.utc)
+        result = service.process_running_simulation_arrivals(
+            reference_time=datetime.now(timezone.utc),
+            job_id=job.id if job else None,
         )
-
-        transitioned_arrivals: list[tuple[DueArrivalEvent, bool]] = []
-
-        for arrival in due_arrivals:
-            updated = route_repository.mark_route_leg_as_visited(arrival["route_leg_id"])
-            if not updated:
-                continue
-
-            has_next_leg = route_repository.promote_next_route_leg_to_in_progress(
-                courier_route_id=arrival["courier_route_id"],
-                current_sequence=arrival["sequence"],
-            )
-
-            simulation_repository.apply_arrival_progress(
-                simulation_id=arrival["simulation_id"],
-                has_next_leg=has_next_leg,
-            )
-            transitioned_arrivals.append((arrival, has_next_leg))
-
         db.commit()
-
-        emitted_count = 0
-        for arrival, has_next_leg in transitioned_arrivals:
-            if arrival["node_id"] < 0:
-                continue
-
-            emit_vehicle_arrived_event(
-                simulation_id=arrival["simulation_id"],
-                courier_route_id=arrival["courier_route_id"],
-                courier_id=arrival["courier_id"],
-                node_id=arrival["node_id"],
-                record_log=True,
-            )
-
-            if has_next_leg:
-                emit_vehicle_departed_node_event(
-                    simulation_id=arrival["simulation_id"],
-                    courier_route_id=arrival["courier_route_id"],
-                    courier_id=arrival["courier_id"],
-                    node_id=arrival["node_id"],
-                )
-            else:
-                emit_vehicle_returned_to_depot_event(
-                    simulation_id=arrival["simulation_id"],
-                    courier_route_id=arrival["courier_route_id"],
-                    courier_id=arrival["courier_id"],
-                )
-            emitted_count += 1
-
-        wide_event["status"] = "success"
-        wide_event["due_arrival_count"] = len(due_arrivals)
-        wide_event["transitioned_count"] = len(transitioned_arrivals)
-        wide_event["emitted_count"] = emitted_count
-        wide_event["duration_ms"] = (time.time() - start_time) * 1000
-        logger.info(wide_event)
-
-        return {
-            "due_arrival_count": len(due_arrivals),
-            "transitioned_count": len(transitioned_arrivals),
-            "emitted_count": emitted_count,
-        }
-    except Exception as e:
+        return result
+    except Exception:
         db.rollback()
-        wide_event["status"] = "failed"
-        wide_event["error"] = str(e)
-        wide_event["error_type"] = type(e).__name__
-        wide_event["duration_ms"] = (time.time() - start_time) * 1000
-        logger.error(wide_event)
         raise
     finally:
         db.close()
+
+

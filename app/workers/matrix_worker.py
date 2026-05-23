@@ -12,7 +12,7 @@ from app.services.tomtom_service import TomTomService
 
 logger = get_logger(__name__)
 
-async def generate_matrices(simulation_id: str):
+async def generate_matrices(simulation_id: str, start_pair_index: int = 0):
     job = get_current_job()
     start_time = time.time()
     
@@ -35,7 +35,7 @@ async def generate_matrices(simulation_id: str):
 
         wide_event["stage"] = "submitting_matrix_requests"
         
-        await matrix_service.submit_tomtom_matrix_requests(simulation_id)
+        await matrix_service.submit_tomtom_matrix_requests(simulation_id, start_pair_index=start_pair_index)
         
         wide_event["status"] = "success"
         wide_event["duration_ms"] = (time.time() - start_time) * 1000
@@ -54,7 +54,7 @@ async def generate_matrices(simulation_id: str):
         
         try:
             db = next(get_db())
-            await SimulationRepository(db).update_simulation_status(
+            await SimulationRepository(db=db).update_simulation_status(
                 simulation_id, SimulationStatusEnum.failed
             )
         except Exception:

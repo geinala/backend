@@ -39,6 +39,9 @@ class EnvironmentConfiguration(BaseSettings):
     SIMULATION_ARRIVAL_CHECK_SCHEDULE_QUEUE: str = os.getenv("SIMULATION_ARRIVAL_CHECK_SCHEDULE_QUEUE", "light")
     SIMULATION_ENGINE_TICK_INTERVAL_SECONDS: float = float(os.getenv("SIMULATION_ENGINE_TICK_INTERVAL_SECONDS", 10))
 
+    # Traffic Congestion Configuration
+    TRAFFIC_CONGESTION_THRESHOLD_SECONDS: int = int(os.getenv("TRAFFIC_CONGESTION_THRESHOLD_SECONDS", 420))
+
     # FastAPI (Health checks only)
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
     API_PORT: int = int(os.getenv("API_PORT", 8000))
@@ -91,6 +94,7 @@ class EnvironmentConfiguration(BaseSettings):
     TOMTOM_MATRIX_API_KEY: str = os.getenv("TOMTOM_MATRIX_API_KEY", "")
     TOMTOM_ROUTING_API_KEY: str = os.getenv("TOMTOM_ROUTING_API_KEY", "")
     TOMTOM_SEARCH_API_KEY: str = os.getenv("TOMTOM_SEARCH_API_KEY", "")
+    TOMTOM_TRAFFIC_API_KEY: str = os.getenv("TOMTOM_TRAFFIC_API_KEY", "")
 
     class Config:
         env_file = ".env"

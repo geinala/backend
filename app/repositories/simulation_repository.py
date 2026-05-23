@@ -1,4 +1,5 @@
 
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -27,6 +28,10 @@ class SimulationRepository:
         simulation = self.db.query(Simulation).filter(Simulation.id == simulation_id).first()
         if not simulation:
             return None
+
+        if status == SimulationStatusEnum.running and simulation.started_at is None:
+            simulation.started_at = datetime.now(timezone.utc)
+
         simulation.status = status
         self.db.commit()
         self.db.refresh(simulation)

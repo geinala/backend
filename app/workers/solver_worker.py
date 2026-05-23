@@ -13,18 +13,18 @@ logger = get_logger(__name__)
 
 async def get_solution(simulation_id: str):
         try:
+            db = next(get_db())
             solver_service = SolverService(
                 matrix_service = MatrixService(
-                    matrix_repository = MatrixRepository(next(get_db())),
-                    node_repository = NodeRepository(next(get_db())),
+                    matrix_repository = MatrixRepository(db),
+                    node_repository = NodeRepository(db),
                     tomtom_service = TomTomService(),
-                    simulation_repository=SimulationRepository(next(get_db())),
+                    simulation_repository=SimulationRepository(db),
                 ),
-                courier_repository = CourierRepository(next(get_db())),
-                node_repository = NodeRepository(next(get_db())),
-                solution_repository = SolutionRepository(next(get_db())
-                ),
-                simulation_repository=SimulationRepository(next(get_db())),
+                courier_repository = CourierRepository(db),
+                node_repository = NodeRepository(db),
+                solution_repository = SolutionRepository(db),
+                simulation_repository=SimulationRepository(db),
             )
             
             await solver_service.solve(simulation_id)

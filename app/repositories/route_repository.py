@@ -1,10 +1,8 @@
 from datetime import datetime
 from typing import TypedDict
 
-from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
-from app.models.node import Node
 from app.models.simulation import Simulation, SimulationStatusEnum
 from app.models.solution import Solution
 from app.models.route import CreateRouteLeg, RouteLeg, RouteStatusEnum
@@ -16,8 +14,27 @@ class DueArrivalEvent(TypedDict):
     simulation_id: str
     courier_id: int
     node_id: int
+    from_node_id: int
+    to_node_id: int
     courier_route_id: int
     sequence: int
+
+
+class NextRouteLegSnapshot(TypedDict):
+    route_leg_id: int
+    courier_route_id: int
+    sequence: int
+    origin_latitude: float
+    origin_longitude: float
+    destination_latitude: float
+    destination_longitude: float
+    from_node_id: int
+    to_node_id: int
+    encoded_polyline: str
+    encoded_polyline_precision: int
+    traffic_delay_in_seconds: int
+    travel_time_in_seconds: int
+    distance_in_meters: int
 
 
 class RunningVehicleSnapshot(TypedDict):
@@ -30,6 +47,8 @@ class RunningVehicleSnapshot(TypedDict):
     origin_longitude: float
     destination_latitude: float
     destination_longitude: float
+    from_node_id: int
+    to_node_id: int
     encoded_polyline: str
     encoded_polyline_precision: int
     departure_time: datetime
@@ -78,21 +97,14 @@ class RouteRepository:
                 RouteLeg.id,
                 Solution.simulation_id,
                 CourierRoute.courier_id,
-                Node.id,
+                RouteLeg.from_node_id,
+                RouteLeg.to_node_id,
                 RouteLeg.courier_route_id,
                 RouteLeg.sequence,
             )
             .join(CourierRoute, CourierRoute.id == RouteLeg.courier_route_id)
             .join(Solution, Solution.id == CourierRoute.solution_id)
             .join(Simulation, Simulation.id == Solution.simulation_id)
-            .outerjoin(
-                Node,
-                and_(
-                    Node.simulation_id == Solution.simulation_id,
-                    Node.latitude == RouteLeg.destination_latitude,
-                    Node.longitude == RouteLeg.destination_longitude,
-                ),
-            )
             .filter(Simulation.status == SimulationStatusEnum.running)
             .filter(RouteLeg.arrival_time <= reference_time)
             .filter(RouteLeg.route_status.in_([RouteStatusEnum.planned, RouteStatusEnum.running]))
@@ -105,9 +117,11 @@ class RouteRepository:
                 "route_leg_id": int(row[0]),
                 "simulation_id": str(row[1]),
                 "courier_id": int(row[2]),
-                "node_id": int(row[3]) if row[3] is not None else -1,
-                "courier_route_id": int(row[4]),
-                "sequence": int(row[5]),
+                "node_id": int(row[4]) if row[4] is not None else -1,
+                "from_node_id": int(row[3]),
+                "to_node_id": int(row[4]),
+                "courier_route_id": int(row[5]),
+                "sequence": int(row[6]),
             }
             for row in rows
         ]
@@ -126,6 +140,8 @@ class RouteRepository:
                 RouteLeg.origin_longitude,
                 RouteLeg.destination_latitude,
                 RouteLeg.destination_longitude,
+                RouteLeg.from_node_id,
+                RouteLeg.to_node_id,
                 RouteLeg.encoded_polyline,
                 RouteLeg.encoded_polyline_precision,
                 RouteLeg.departure_time,
@@ -156,13 +172,15 @@ class RouteRepository:
                 "origin_longitude": float(row[6]),
                 "destination_latitude": float(row[7]),
                 "destination_longitude": float(row[8]),
-                "encoded_polyline": str(row[9]),
-                "encoded_polyline_precision": int(row[10]),
-                "departure_time": row[11],
-                "arrival_time": row[12],
-                "travel_time_in_seconds": int(row[13]),
-                "distance_in_meters": int(row[14]),
-                "route_status": row[15].value if isinstance(row[15], RouteStatusEnum) else str(row[15]),
+                "from_node_id": int(row[9]),
+                "to_node_id": int(row[10]),
+                "encoded_polyline": str(row[11]),
+                "encoded_polyline_precision": int(row[12]),
+                "departure_time": row[13],
+                "arrival_time": row[14],
+                "travel_time_in_seconds": int(row[15]),
+                "distance_in_meters": int(row[16]),
+                "route_status": row[17].value if isinstance(row[17], RouteStatusEnum) else str(row[17]),
             }
             for row in rows
         ]
@@ -191,3 +209,37 @@ class RouteRepository:
 
         next_leg.route_status = RouteStatusEnum.running
         return True
+
+    def get_next_route_leg_after_sequence(
+        self,
+        courier_route_id: int,
+        current_sequence: int,
+    ) -> NextRouteLegSnapshot | None:
+        next_leg = (
+            self.db.query(RouteLeg)
+            .filter(RouteLeg.courier_route_id == courier_route_id)
+            .filter(RouteLeg.sequence > current_sequence)
+            .filter(RouteLeg.route_status.in_([RouteStatusEnum.planned, RouteStatusEnum.running]))
+            .order_by(RouteLeg.sequence.asc())
+            .first()
+        )
+
+        if next_leg is None:
+            return None
+
+        return {
+            "route_leg_id": int(next_leg.id),
+            "courier_route_id": int(next_leg.courier_route_id),
+            "sequence": int(next_leg.sequence),
+            "origin_latitude": float(next_leg.origin_latitude),
+            "origin_longitude": float(next_leg.origin_longitude),
+            "destination_latitude": float(next_leg.destination_latitude),
+            "destination_longitude": float(next_leg.destination_longitude),
+            "from_node_id": int(next_leg.from_node_id),
+            "to_node_id": int(next_leg.to_node_id),
+            "encoded_polyline": str(next_leg.encoded_polyline),
+            "encoded_polyline_precision": int(next_leg.encoded_polyline_precision),
+            "traffic_delay_in_seconds": int(next_leg.traffic_delay_in_seconds),
+            "travel_time_in_seconds": int(next_leg.travel_time_in_seconds),
+            "distance_in_meters": int(next_leg.distance_in_meters),
+        }

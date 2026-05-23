@@ -1,6 +1,9 @@
+import json
+
 from app.configs.worker_configuration import JobType
 from app.constants.job_prefixes import JOB_PREFIXES_ENUM
 from app.constants.simulation_log_event_types import (
+    INCIDENT_DETECTED,
     VEHICLE_ARRIVED_AT_NODE,
     VEHICLE_DEPARTED_DEPOT,
     VEHICLE_DEPARTED_NODE,
@@ -116,6 +119,57 @@ def emit_vehicle_arrived_event(
             "courier_route_id": courier_route_id,
             "courier_id": courier_id,
             "node_id": node_id,
+        }
+    )
+
+
+def emit_next_route_congestion_detected_event(
+    simulation_id: str,
+    courier_route_id: int,
+    courier_id: int,
+    route_leg_id: int,
+    sequence: int,
+    traffic_delay_in_seconds: int,
+    threshold_seconds: int,
+    latitude: float,
+    longitude: float,
+) -> None:
+    delay_minutes = traffic_delay_in_seconds / 60
+    threshold_minutes = threshold_seconds / 60
+
+    _enqueue_vehicle_simulation_log(
+        simulation_id=simulation_id,
+        event_type=INCIDENT_DETECTED,
+        title=f"Traffic delay detected for courier route {courier_route_id}",
+        description=(
+            f"Next route leg {route_leg_id} has a traffic delay of {traffic_delay_in_seconds} seconds "
+            f"({delay_minutes:.1f} minutes), which exceeds the {threshold_minutes:.1f}-minute threshold."
+        ),
+        courier_route_id=courier_route_id,
+        courier_id=courier_id,
+    )
+
+    logger.warning(
+        {
+            "event_type": "next_route_congestion_detected",
+            "simulation_id": simulation_id,
+            "courier_route_id": courier_route_id,
+            "courier_id": courier_id,
+            "route_leg_id": route_leg_id,
+            "sequence": sequence,
+            "traffic_delay_in_seconds": traffic_delay_in_seconds,
+            "threshold_seconds": threshold_seconds,
+            "latitude": latitude,
+            "longitude": longitude,
+            "metadata": json.dumps(
+                {
+                    "threshold_seconds": threshold_seconds,
+                    "traffic_delay_in_seconds": traffic_delay_in_seconds,
+                    "traffic_delay_in_minutes": round(delay_minutes, 2),
+                    "route_leg_id": route_leg_id,
+                    "sequence": sequence,
+                }
+            ),
         }
     )
 

@@ -11,3 +11,4 @@ class CreateCourierRoute(BaseModel):
     reoptimized_from_route_id: int | None = None
     trigger_node_id: int | None = None
     triggered_by_traffic: bool = False
+    is_initial_route: bool

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy.orm import Session, joinedload
 from app.models.node import Node, NodeDetail
 from app.schemas.node_detail_schema import NodeDetailCreate
@@ -15,6 +17,27 @@ class NodeRepository:
         except Exception:
             self.db.rollback()
             raise
+
+    def mark_node_as_completed(
+        self,
+        node_id: int,
+        courier_id: int,
+        completed_at: datetime,
+    ) -> bool:
+        updated_rows = (
+            self.db.query(Node)
+            .filter(Node.id == node_id)
+            .update(
+                {
+                    Node.is_completed: True,
+                    Node.completed_at: completed_at,
+                    Node.completed_by: courier_id,
+                },
+                synchronize_session=False,
+            )
+        )
+
+        return updated_rows > 0
 
     def create_nodes_with_grouped_details(
         self,

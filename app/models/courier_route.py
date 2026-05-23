@@ -19,6 +19,7 @@ class CourierRoute(Base):
         ForeignKey('courier_routes.id'),
         nullable=True,
     )
+    is_initial_route: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     trigger_node_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('nodes.id'), nullable=True)
     triggered_by_traffic: Mapped[bool] = mapped_column(Boolean, nullable=True, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

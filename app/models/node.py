@@ -1,6 +1,7 @@
+from datetime import datetime
 import uuid
 
-from sqlalchemy import UUID, Integer, String, Float, ForeignKey
+from sqlalchemy import UUID, DateTime, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from app.lib.db import Base
 
@@ -23,6 +24,14 @@ class Node(Base):
     matrix_index: Mapped[int] = mapped_column(Integer, nullable=False)
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    is_completed: Mapped[bool] = mapped_column(nullable=False, default=False)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_by: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("couriers.id"),
+        nullable=True,        
+        index=True,
+    )
     demand: Mapped[float] = mapped_column(Float, nullable=False)
 
     details = relationship(
