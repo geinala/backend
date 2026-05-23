@@ -4,7 +4,7 @@ from rq.job import Job
 
 from app.configs.worker_configuration import JobType
 from app.constants.job_prefixes import JOB_PREFIXES_ENUM
-from app.constants.simulation_log_event_types import INITIAL_ROUTE_GENERATED, MATRIX_GENERATION_COMPLETED, MATRIX_GENERATION_STARTED, MATRIX_RESULTS_PROCESSING_COMPLETED, MATRIX_RESULTS_PROCESSING_STARTED, OPTIMIZATION_COMPLETED, OPTIMIZATION_STARTED, ROUTE_GENERATION_STARTED
+from app.constants.simulation_log_event_types import INITIAL_ROUTE_GENERATED, MATRIX_GENERATION_STARTED, MATRIX_RESULTS_PROCESSING_COMPLETED, MATRIX_RESULTS_PROCESSING_STARTED, OPTIMIZATION_COMPLETED, OPTIMIZATION_STARTED, ROUTE_GENERATION_STARTED
 from app.repositories.simulation_repository import SimulationRepository
 from app.services.job_service import enqueue_job
 from app.services.matrix_service import MatrixService
@@ -31,13 +31,12 @@ class OptimizationService:
             prefix: str | None,
             depends_on: Job | list[Job] | None,
         ) -> Job:
-            kwargs = {"depends_on": depends_on} if depends_on else {}
             return enqueue_job(
                 func,
                 job_type=JobType.HEAVY,
                 job_prefix=prefix,
+                depends_on=depends_on,
                 simulation_id=simulation_id,
-                **kwargs
             )
 
         def add_log(
@@ -66,13 +65,12 @@ class OptimizationService:
                 f"Matrix generation process has been initiated for simulation {simulation_id}",
             )
 
-            last_job = add_job(generate_matrices, JOB_PREFIXES_ENUM.MATRIX_GENERATION, last_job)
-            add_log(
-                MATRIX_GENERATION_COMPLETED,
-                f"Matrices ready for optimization for simulation {simulation_id}",
-                f"All matrices are ready for optimization process for simulation {simulation_id}",
-                depends_on=last_job,
-            )
+            add_job(generate_matrices, JOB_PREFIXES_ENUM.MATRIX_GENERATION, last_job)
+
+            # Matrix submission now continues in delayed follow-up jobs.
+            # The optimization continuation is triggered after the final batch is submitted
+            # and all matrix results have been processed.
+            return
 
         if run_matrix_processing:
             add_log(

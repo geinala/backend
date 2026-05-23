@@ -47,7 +47,6 @@ class OrToolsSolverStrategy(BaseSolverStrategy):
             search_parameters.local_search_metaheuristic = self.local_search_metaheuristic
 
         search_parameters.time_limit.FromSeconds(time_limit_seconds)
-
         return search_parameters
 
     def _register_callbacks(
@@ -73,15 +72,6 @@ class OrToolsSolverStrategy(BaseSolverStrategy):
         transit_callback_index = routing.RegisterTransitCallback(time_callback)
         routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
 
-        demand_callback_index = routing.RegisterUnaryTransitCallback(demand_callback)
-        routing.AddDimensionWithVehicleCapacity(
-            demand_callback_index,
-            0,
-            [max(sum(problem.demands), 1)],
-            True,
-            "Capacity",
-        )
-
         routing.AddDimension(
             transit_callback_index,
             0,
@@ -99,7 +89,7 @@ class OrToolsSolverStrategy(BaseSolverStrategy):
             time_dimension.CumulVar(start_index).SetRange(0, 0)
             time_dimension.CumulVar(end_index).SetRange(0, 28800)
 
-        time_dimension.SetGlobalSpanCostCoefficient(100)
+        time_dimension.SetGlobalSpanCostCoefficient(10)
 
         for vehicle_id in range(routing.vehicles()):
             end_index = routing.End(vehicle_id)
@@ -117,6 +107,6 @@ def build_greedy_solver() -> OrToolsSolverStrategy:
 
 def build_tabu_search_solver() -> OrToolsSolverStrategy:
     return OrToolsSolverStrategy(
-        first_solution_strategy=routing_enums_pb2.FirstSolutionStrategy.PARALLEL_CHEAPEST_INSERTION,
+        first_solution_strategy=routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC,
         local_search_metaheuristic=routing_enums_pb2.LocalSearchMetaheuristic.TABU_SEARCH,
     )

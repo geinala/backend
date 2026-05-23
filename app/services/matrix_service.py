@@ -1,4 +1,3 @@
-import asyncio
 from typing import TypedDict
 from app.models.matrix import CreateMatrixBatchData, CreateMatrixResultData, MatrixBatch, MatrixBatchStatusEnum, UpdateMatrixBatchStatusData
 from app.repositories.matrix_repository import MatrixRepository
@@ -25,17 +24,17 @@ class LocationPayload(TypedDict):
 
 
 class MatrixService:
-    # Delay in seconds between matrix submissions to avoid TomTom rate limiter
-    MATRIX_SUBMISSION_DELAY = 3.0
-    
+    MATRIX_SUBMISSION_DELAY = timedelta(seconds=60)
+
     def __init__(self, node_repository: NodeRepository, tomtom_service: TomTomService, matrix_repository: MatrixRepository, simulation_repository: SimulationRepository):
         self.node_repository = node_repository
         self.tomtom_service = tomtom_service
         self.matrix_repository = matrix_repository
         self.simulation_repository = simulation_repository
 
-    async def submit_tomtom_matrix_requests(self, simulation_id: str):
-        if self.matrix_repository.has_batches_by_simulation_id(simulation_id):
+    async def submit_tomtom_matrix_requests(self, simulation_id: str, start_pair_index: int = 0):
+        existing_batches = self.matrix_repository.get_batches_by_simulation_id(simulation_id)
+        if start_pair_index == 0 and existing_batches:
             logger.info(f"Matrix batches already exist for simulation {simulation_id}, skipping submission")
             return
 
@@ -46,48 +45,84 @@ class MatrixService:
         # TomTom API has a limit of 2500 elements per matrix
         # but to be safe and avoid hitting limits
         # we will use a smaller batch size of 50 nodes per matrix.
-        matrix_size = 50 if len(nodes) > 50 else len(nodes)
+        matrix_size = 30 if len(nodes) > 30 else len(nodes)
 
         node_pairs = self._split_nodes_by_matrix(nodes, matrix_size)
-        saved_batches: list[CreateMatrixBatchData] = []
-        
-        for idx, (origins, destinations) in enumerate(node_pairs):
-            origin_locations = [self._node_to_location_payload(node) for node in origins]
-            destination_locations = [self._node_to_location_payload(node) for node in destinations]
-            
-            logger.info(
-                f"Submitting matrix {idx + 1}/{len(node_pairs)} for simulation {simulation_id} "
-                f"with {len(origin_locations)} origin nodes and {len(destination_locations)} destination nodes"
-            )
-            
-            logger.info(f"Submitting matrix at {datetime.now(timezone.utc)} for simulation {simulation_id} with node indices {origins[0].id} to {origins[-1].id}")
-            response = self.tomtom_service.submit_matrix(origin_locations, destination_locations)
-            
-            batch_data = CreateMatrixBatchData(
-                simulation_id=simulation_id,
-                origin_start_index=origins[0].matrix_index,
-                origin_end_index=origins[-1].matrix_index,
-                destination_start_index=destinations[0].matrix_index,
-                destination_end_index=destinations[-1].matrix_index,
-                tomtom_job_id=response.get("jobId"),
-            )
-            saved_batches.append(batch_data)
+        if start_pair_index >= len(node_pairs):
+            logger.info(f"All matrix batches already submitted for simulation {simulation_id}")
+            return
 
-            # Add delay between submissions to respect TomTom rate limiter
-            # Skip delay on last submission
-            if idx < len(node_pairs) - 1:
-                await asyncio.sleep(self.MATRIX_SUBMISSION_DELAY)
-                logger.debug(f"Waited {self.MATRIX_SUBMISSION_DELAY}s before next matrix submission")
+        if existing_batches and start_pair_index < len(existing_batches):
+            start_pair_index = len(existing_batches)
+
+        origins, destinations = node_pairs[start_pair_index]
+        origin_locations = [self._node_to_location_payload(node) for node in origins]
+        destination_locations = [self._node_to_location_payload(node) for node in destinations]
+
+        logger.info(
+            f"Submitting matrix {start_pair_index + 1}/{len(node_pairs)} for simulation {simulation_id} "
+            f"with {len(origin_locations)} origin nodes and {len(destination_locations)} destination nodes"
+        )
+
+        logger.info(f"Submitting matrix at {datetime.now(timezone.utc)} for simulation {simulation_id} with node indices {origins[0].id} to {origins[-1].id}")
+        response = self.tomtom_service.submit_matrix(origin_locations, destination_locations)
+
+        batch_data = CreateMatrixBatchData(
+            simulation_id=simulation_id,
+            origin_start_index=origins[0].matrix_index,
+            origin_end_index=origins[-1].matrix_index,
+            destination_start_index=destinations[0].matrix_index,
+            destination_end_index=destinations[-1].matrix_index,
+            tomtom_job_id=response.get("jobId"),
+        )
+        self.matrix_repository.bulk_insert_matrix_batches([batch_data])
+
+        next_pair_index = start_pair_index + 1
         
-        # Bulk insert all batches after submission
-        self.matrix_repository.bulk_insert_matrix_batches(saved_batches)
+        logger.info(f"Submitted matrix batch for simulation {simulation_id}, next pair index is {next_pair_index}")
+        logger.info(f"Total batches for simulation {simulation_id} is {len(node_pairs)}, submitted batches: {next_pair_index}")
+        
+        if next_pair_index < len(node_pairs):
+            from app.workers import matrix_worker_generate_matrices
+
+            enqueue_job(
+                function_path=matrix_worker_generate_matrices,
+                delay=self.MATRIX_SUBMISSION_DELAY,
+                job_prefix=JOB_PREFIXES_ENUM.MATRIX_GENERATION,
+                job_type=JobType.HEAVY,
+                simulation_id=simulation_id,
+                start_pair_index=next_pair_index,
+            )
+            logger.info(
+                f"Scheduled next matrix submission for simulation {simulation_id} "
+                f"after {self.MATRIX_SUBMISSION_DELAY}"
+            )
+        else:
+            from app.workers import matrix_worker_get_matrix_results
+
+            logger.info(f"All matrix batches submitted for simulation {simulation_id}")
+            enqueue_job(
+                function_path=matrix_worker_get_matrix_results,
+                delay=timedelta(seconds=15),
+                job_prefix=JOB_PREFIXES_ENUM.MATRIX_RESULT_PROCESSING,
+                job_type=JobType.HEAVY,
+                simulation_id=simulation_id,
+            )
+            logger.info(
+                f"Scheduled matrix result processing for simulation {simulation_id} "
+                f"after final batch submission"
+            )
         
     async def get_matrix_results(self, simulation_id: str):
         batches = self.matrix_repository.get_batches_by_simulation_id(simulation_id, status=MatrixBatchStatusEnum.submitted)
+        nodes = self._get_all_nodes(simulation_id)
+        matrix_size = 30 if len(nodes) > 30 else len(nodes)
+        expected_batch_count = len(self._split_nodes_by_matrix(nodes, matrix_size))
+        submitted_batch_count = len(self.matrix_repository.get_batches_by_simulation_id(simulation_id))
 
         has_pending_batches = False
         
-        for idx, batch in enumerate(batches):
+        for batch in batches:
             logger.info(f"Batch value: {batch.__dict__}")
             
             status_response = self.tomtom_service.get_matrix_status(batch.tomtom_job_id)
@@ -124,20 +159,41 @@ class MatrixService:
                 logger.info(f"Batch {batch.id} with TomTom job ID {batch.tomtom_job_id} is still processing with state {state}")
                 has_pending_batches = True
 
-            if idx < len(batches) - 1:
-                await asyncio.sleep(self.MATRIX_SUBMISSION_DELAY)
-                logger.debug(f"Waited {self.MATRIX_SUBMISSION_DELAY}s before next matrix submission")
-        
         if has_pending_batches:
+            from app.workers import matrix_worker_get_matrix_results
+
             logger.info(f"Matrix batches for simulation {simulation_id} are still being processed")
-            from app.workers.matrix_worker import get_matrix_results as get_matrix_results_worker
             enqueue_job(
-                    function_path=get_matrix_results_worker,
+                    function_path=matrix_worker_get_matrix_results,
                     delay=timedelta(seconds=15),
                     job_prefix=JOB_PREFIXES_ENUM.MATRIX_RESULT_PROCESSING,
                     job_type=JobType.HEAVY,
                     simulation_id=simulation_id,
                 )
+        elif submitted_batch_count >= expected_batch_count:
+            from app.workers import optimization_worker_optimize
+
+            logger.info(f"Matrix batches for simulation {simulation_id} are fully processed, continuing optimization")
+            enqueue_job(
+                function_path=optimization_worker_optimize,
+                job_prefix=JOB_PREFIXES_ENUM.OPTIMIZATION,
+                job_type=JobType.HEAVY,
+                simulation_id=simulation_id,
+            )
+        else:
+            from app.workers import matrix_worker_get_matrix_results
+
+            logger.info(
+                f"Matrix batches for simulation {simulation_id} are still being submitted "
+                f"({submitted_batch_count}/{expected_batch_count}), checking again later"
+            )
+            enqueue_job(
+                function_path=matrix_worker_get_matrix_results,
+                delay=timedelta(seconds=15),
+                job_prefix=JOB_PREFIXES_ENUM.MATRIX_RESULT_PROCESSING,
+                job_type=JobType.HEAVY,
+                simulation_id=simulation_id,
+            )
     
     def has_batches(self, simulation_id: str) -> bool:
         return self.matrix_repository.has_batches_by_simulation_id(simulation_id)

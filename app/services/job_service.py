@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any, Callable, Optional, cast
 from uuid import uuid4
 from rq.job import Job, JobStatus
@@ -39,8 +40,9 @@ class JobService:
         function_path: str | Callable[..., Any],
         job_type: JobType = JobType.DEFAULT,
         job_prefix: Optional[str] = None,
-        depends_on: Optional[Job | list[Job]] = None,
         *args: Any,
+        depends_on: Optional[Job | list[Job]] = None,
+        delay: Optional[timedelta] = None,
         **kwargs: Any
     ) -> Job:
         with wide_event(
@@ -56,13 +58,23 @@ class JobService:
             else:
                 custom_job_id = None
             
-            job = queue.enqueue( # type: ignore [reportUnknownMemberType]
-                cast(Any, function_path),
-                *args,
-                job_id=custom_job_id,
-                depends_on=depends_on,
-                **kwargs
-            ) 
+            if delay is not None:
+                job = queue.enqueue_in(  # type: ignore [reportUnknownMemberType]
+                    delay,
+                    cast(Any, function_path),
+                    *args,
+                    job_id=custom_job_id,
+                    depends_on=depends_on,
+                    **kwargs,
+                )
+            else:
+                job = queue.enqueue(  # type: ignore [reportUnknownMemberType]
+                    cast(Any, function_path),
+                    *args,
+                    job_id=custom_job_id,
+                    depends_on=depends_on,
+                    **kwargs,
+                )
             
             event["job_id"] = job.id
             event["queue_name"] = queue.name
@@ -73,11 +85,20 @@ def enqueue_job(
     function_path: str | Callable[..., Any],
     job_type: JobType = JobType.DEFAULT,
     job_prefix: Optional[str] = None,
-    depends_on: Optional[Job | list[Job]] = None,
     *args: Any,
+    depends_on: Optional[Job | list[Job]] = None,
+    delay: Optional[timedelta] = None,
     **kwargs: Any
 ) -> Job:
-    return JobService.enqueue_job(function_path, job_type, job_prefix, depends_on, *args, **kwargs)
+    return JobService.enqueue_job(
+        function_path,
+        job_type,
+        job_prefix,
+        *args,
+        depends_on=depends_on,
+        delay=delay,
+        **kwargs,
+    )
 
 def get_job_status(job_id: str, job_type: JobType = JobType.DEFAULT) -> AppJobStatus:
     rq_job_status = JobService.get_job_status(job_id, job_type)

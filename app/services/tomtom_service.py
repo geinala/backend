@@ -143,6 +143,44 @@ class FuzzySearchResponse(TypedDict):
     results: List[FuzzySearchResult] | None
 
 
+class IncidentEvent(TypedDict):
+  code: int
+  description: str
+  iconCategory: int
+
+
+class IncidentGeometry(TypedDict):
+  type: str
+  coordinates: list[list[float]]
+
+
+IncidentProperties = TypedDict(
+  "IncidentProperties",
+  {
+    "id": str,
+    "iconCategory": int,
+    "magnitudeOfDelay": int,
+    "startTime": str,
+    "endTime": str,
+    "from": str,
+    "to": str,
+    "length": float,
+    "delay": int,
+    "events": list[IncidentEvent],
+  },
+)
+
+
+class IncidentFeature(TypedDict):
+  type: str
+  properties: IncidentProperties
+  geometry: IncidentGeometry
+
+
+class TomTomIncidentDetailsResponse(TypedDict):
+  incidents: list[IncidentFeature]
+
+
 class TomTomService:
     BASE_URL = "https://api.tomtom.com"
     
@@ -150,7 +188,31 @@ class TomTomService:
         self.matrix_api_key = env.TOMTOM_MATRIX_API_KEY
         self.routing_api_key = env.TOMTOM_ROUTING_API_KEY
         self.search_api_key = env.TOMTOM_SEARCH_API_KEY
+        self.traffic_api_key = env.TOMTOM_TRAFFIC_API_KEY
         self.session = requests.Session()
+        
+    def get_incident_details(self, bbox: tuple[float, float, float, float]) -> TomTomIncidentDetailsResponse:
+        params: dict[str, str] = {
+            "key": self.traffic_api_key,
+            "bbox": ",".join(str(x) for x in bbox),
+            "fields": "{incidents{type,geometry{type,coordinates},properties{id,iconCategory,magnitudeOfDelay,delay,events{description,code,iconCategory},startTime,endTime,from,to,length}}}",
+            "categoryFilter": "1,6,8,9,11,14",
+            "timeValidityFilter": "present"
+        }
+        
+        try:
+            response = self.session.get(
+                f"{self.BASE_URL}/traffic/services/5/incidentDetails",
+                params=params,
+                timeout=30,
+            )
+            
+            response.raise_for_status()
+            
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"TomTom API request failed: {e}")
+            raise RuntimeError(f"TomTom API request failed: {e}") from e
 
     def generate_routes(self, routes: str, depart_at: str | None) -> TomTomRouteResultResponse:
         options: RoutingPayload = {

@@ -81,7 +81,8 @@ class PreOptimizationService:
             matrix_index=0,
             latitude=simulation_job.depot_location_latitude,
             longitude=simulation_job.depot_location_longitude,
-            demand=0
+            demand=0,
+            is_completed=False,
         )
         self.node_repository.create_node(depot_node)
 
@@ -103,7 +104,8 @@ class PreOptimizationService:
                         matrix_index=next_matrix_index,
                         latitude=float(row.latitude),
                         longitude=float(row.longitude),
-                        demand=0
+                        demand=0,
+                        is_completed=False,
                     ),
                     details,
                 )

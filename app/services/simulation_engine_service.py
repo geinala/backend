@@ -67,7 +67,14 @@ class SimulationEngineService:
         started_at = getattr(simulation, "started_at", None) or reference_time
         elapsed_seconds = max(int((reference_time - started_at).total_seconds()), 0)
 
-        total_duration = max(int(getattr(simulation, "total_duration_in_seconds", 0) or 0), 0)
+        total_duration = max(
+            int(
+                getattr(simulation, "initial_total_duration_in_seconds", None)
+                or getattr(simulation, "final_total_duration_in_seconds", None)
+                or 0
+            ),
+            0,
+        )
         time_progress = 0.0
         if total_duration > 0:
             time_progress = min(elapsed_seconds / total_duration, 1.0)

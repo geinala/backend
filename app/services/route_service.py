@@ -1,6 +1,6 @@
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, TypedDict
 
 from app.models.courier import Courier
@@ -133,7 +133,8 @@ class RouteService:
                     route_version=1,
                     is_active=True,
                     total_distance_in_meters=tabu_summary["lengthInMeters"],
-                    total_time_in_seconds=tabu_summary["travelTimeInSeconds"]
+                    total_time_in_seconds=tabu_summary["travelTimeInSeconds"],
+                    is_initial_route=True
                 )
             )
 
@@ -158,6 +159,8 @@ class RouteService:
         optimization_runs: list[CreateOptimizationRun] = []
 
         for route_build, courier_route in zip(route_builds, courier_route_objects, strict=True):
+            triggered_at = datetime.now(timezone.utc)
+
             optimization_runs.extend(
                 [
                     CreateOptimizationRun(
@@ -170,6 +173,8 @@ class RouteService:
                         total_travel_time_in_seconds=route_build["greedy_summary"]["travelTimeInSeconds"],
                         computation_time_in_ms=route_build["greedy_computation_time_in_ms"],
                         total_nodes_explored=route_build["nodes_explored"],
+                        traffic_incident_id=None,
+                        triggered_at=triggered_at,
                     ),
                     CreateOptimizationRun(
                         simulation_id=route_build["solution"].simulation_id,
@@ -181,6 +186,12 @@ class RouteService:
                         total_travel_time_in_seconds=route_build["tabu_summary"]["travelTimeInSeconds"],
                         computation_time_in_ms=route_build["tabu_computation_time_in_ms"],
                         total_nodes_explored=route_build["nodes_explored"],
+                        traffic_incident_id=None,
+                        before_total_distance_in_meters=route_build["greedy_summary"]["lengthInMeters"],
+                        before_total_travel_time_in_seconds=route_build["greedy_summary"]["travelTimeInSeconds"],
+                        before_computation_time_in_ms=route_build["greedy_computation_time_in_ms"],
+                        before_total_nodes_explored=route_build["nodes_explored"],
+                        triggered_at=triggered_at,
                     ),
                 ]
             )
@@ -213,6 +224,8 @@ class RouteService:
                 route_legs.append(
                     CreateRouteLeg(
                         courier_route_id=courier_route.id,
+                        from_node_id=origin_node.id,
+                        to_node_id=destination_node.id,
                         origin_latitude=origin_node.latitude,
                         origin_longitude=origin_node.longitude,
                         destination_latitude=destination_node.latitude,
@@ -252,8 +265,8 @@ class RouteService:
         await self.simulation_repository.update_simulation_fields(
             simulation_id,
             {
-                "total_distance_in_meters": sum(route.total_distance_in_meters for route in courier_routes),
-                "total_duration_in_seconds": sum(route.total_time_in_seconds for route in courier_routes),
+                "initial_total_distance_in_meters": sum(route.total_distance_in_meters for route in courier_routes),
+                "initial_total_duration_in_seconds": sum(route.total_time_in_seconds for route in courier_routes),
                 "total_nodes": len(nodes),
                 "total_couriers": len(courier_routes),
                 "total_active_couriers": sum(1 for route in courier_routes if route.is_active),
