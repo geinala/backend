@@ -17,30 +17,6 @@ from app.workers.log_worker import create_simulation_log
 
 logger = get_logger(__name__)
 
-
-def _enqueue_vehicle_simulation_log(
-    simulation_id: str,
-    event_type: str,
-    title: str,
-    description: str,
-    courier_route_id: int,
-    courier_id: int,
-) -> None:
-    enqueue_job(
-        create_simulation_log,
-        job_type=JobType.LIGHT,
-        job_prefix=JOB_PREFIXES_ENUM.SIMULATION_LOG,
-        log_payload=CreateSimulationLog(
-            simulation_id=simulation_id,
-            courier_route_id=courier_route_id,
-            courier_id=courier_id,
-            event_type=event_type,
-            title=title,
-            description=description,
-        ),
-    )
-
-
 def emit_route_initialized_event(simulation_id: str, total_arrival_events: int) -> None:
     publish_realtime_event(
         "ROUTE_INITIALIZED",
@@ -221,4 +197,26 @@ def emit_vehicle_returned_to_depot_event(
             "courier_route_id": courier_route_id,
             "courier_id": courier_id,
         }
+    )
+    
+def _enqueue_vehicle_simulation_log(
+    simulation_id: str,
+    event_type: str,
+    title: str,
+    description: str,
+    courier_route_id: int,
+    courier_id: int,
+) -> None:
+    enqueue_job(
+        create_simulation_log,
+        job_type=JobType.LIGHT,
+        job_prefix=JOB_PREFIXES_ENUM.SIMULATION_LOG,
+        log_payload=CreateSimulationLog(
+            simulation_id=simulation_id,
+            courier_route_id=courier_route_id,
+            courier_id=courier_id,
+            event_type=event_type,
+            title=title,
+            description=description,
+        ),
     )
