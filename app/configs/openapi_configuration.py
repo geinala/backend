@@ -1,4 +1,4 @@
-from typing import Any, Callable, ParamSpec, TypeVar
+from typing import Any
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
@@ -85,12 +85,3 @@ def open_api_configuration_factory(app: FastAPI):
             del schema["$defs"]
     
     app.openapi = openapi_config
-
-P = ParamSpec("P")
-R = TypeVar("R")
-
-def no_global_responses(
-    func: Callable[P, R]
-) -> Callable[P, R]:
-    func.skip_global_responses = True  # type: ignore[attr-defined]
-    return func
