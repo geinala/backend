@@ -1,11 +1,14 @@
-from typing import TypedDict
-from app.models.matrix import CreateMatrixBatchData, CreateMatrixResultData, MatrixBatch, MatrixBatchStatusEnum, UpdateMatrixBatchStatusData
+import json
+from typing import TypedDict, cast
+from app.configs.redis_configuration import get_redis_client
+from app.models.matrix import MatrixBatch, MatrixBatchStatusEnum
 from app.repositories.matrix_repository import MatrixRepository
 from app.repositories.node_repository import NodeRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.models.node import Node
 from app.models.simulation import SimulationStatusEnum
 from app.services.tomtom_service import STATE_ENUM, MatrixResponse, RouteSummary, TomTomService
+from app.schemas.matrix_schema import CreateMatrixBatchData, CreateMatrixResultData, UpdateMatrixBatchStatusData
 from datetime import datetime, timedelta, timezone
 from app.lib.logging.logging import get_logger
 from app.services.job_service import enqueue_job
@@ -25,6 +28,7 @@ class LocationPayload(TypedDict):
 
 class MatrixService:
     MATRIX_SUBMISSION_DELAY = timedelta(seconds=60)
+    MATRIX_CACHE_KEY_PREFIX = "simulation:matrix-time-matrix:"
 
     def __init__(self, node_repository: NodeRepository, tomtom_service: TomTomService, matrix_repository: MatrixRepository, simulation_repository: SimulationRepository):
         self.node_repository = node_repository
@@ -210,6 +214,10 @@ class MatrixService:
         return len(remaining_batches) > 0
     
     async def build_time_matrix(self, simulation_id: str) -> list[list[int]]:
+        cached_time_matrix = self._get_cached_time_matrix(simulation_id)
+        if cached_time_matrix is not None:
+            return cached_time_matrix
+
         results = self.matrix_repository.get_matrix_results_by_simulation_id(simulation_id)
 
         nodes = self._get_all_nodes(simulation_id)
@@ -224,8 +232,38 @@ class MatrixService:
                 time_matrix[origin][destination] = result.travel_time_in_seconds
 
         logger.info(f"Built {num_nodes}x{num_nodes} time matrix for simulation {simulation_id} from {len(results)} results")
+        self._cache_time_matrix(simulation_id, time_matrix)
 
         return time_matrix
+
+    def _get_cached_time_matrix(self, simulation_id: str) -> list[list[int]] | None:
+        try:
+            redis_client = get_redis_client()
+            cached_value = redis_client.get(self._time_matrix_cache_key(simulation_id))
+        except Exception:
+            return None
+
+        if cached_value is None:
+            return None
+
+        try:
+            cached_matrix = json.loads(cast(str | bytes | bytearray, cached_value))
+        except json.JSONDecodeError:
+            logger.warning(f"Invalid cached time matrix for simulation {simulation_id}, rebuilding it")
+            return None
+
+        logger.info(f"Loaded cached time matrix for simulation {simulation_id}")
+        return cast(list[list[int]], cached_matrix)
+
+    def _cache_time_matrix(self, simulation_id: str, time_matrix: list[list[int]]) -> None:
+        try:
+            redis_client = get_redis_client()
+            redis_client.set(self._time_matrix_cache_key(simulation_id), json.dumps(time_matrix))
+        except Exception:
+            logger.warning(f"Failed to cache time matrix for simulation {simulation_id}")
+
+    def _time_matrix_cache_key(self, simulation_id: str) -> str:
+        return f"{self.MATRIX_CACHE_KEY_PREFIX}{simulation_id}"
 
     
     async def _get_matrix_results(self, batch: MatrixBatch, simulation_id: str) -> list[CreateMatrixResultData]:

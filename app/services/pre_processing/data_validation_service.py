@@ -7,7 +7,8 @@ from app.services.file_service import FileService
 from app.services.minio_service import MinioService
 from app.repositories.simulation_uploaded_row_repository import SimulationUploadedRowRepository
 from app.lib.logging.logging import get_logger
-from app.models.error_report import ValidationError, CSVValidationResult
+from app.models.error_report import ValidationError
+from app.schemas.error_report_schema import CSVValidationResult
 from app.models.simulation_job import (
     SimulationJobStatusEnum,
     SimulationJobFileValidationStatusEnum,

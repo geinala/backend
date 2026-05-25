@@ -21,11 +21,22 @@ class OrToolsSolverStrategy(BaseSolverStrategy):
         self,
         problem: SolverProblem,
     ) -> tuple[pywrapcp.RoutingIndexManager, pywrapcp.RoutingModel, pywrapcp.Assignment | None]:
-        manager = pywrapcp.RoutingIndexManager(
-            len(problem.time_matrix),
-            1,
-            problem.depot_index,
-        )
+        start_index = problem.start_index
+        end_index = problem.end_index if problem.end_index is not None else problem.depot_index
+
+        if start_index == end_index:
+            manager = pywrapcp.RoutingIndexManager(
+                len(problem.time_matrix),
+                1,
+                start_index,
+            )
+        else:
+            manager = pywrapcp.RoutingIndexManager(
+                len(problem.time_matrix),
+                1,
+                [start_index],
+                [end_index],
+            )
         routing = pywrapcp.RoutingModel(manager)
 
         self._register_callbacks(

@@ -67,6 +67,50 @@ def haversine_m(point_a: tuple[float, float], point_b: tuple[float, float]) -> f
     return 2 * earth_radius_m * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+def calculate_bearing_degrees(
+    start_point: tuple[float, float],
+    end_point: tuple[float, float],
+) -> float:
+    start_latitude_radians = math.radians(start_point[0])
+    end_latitude_radians = math.radians(end_point[0])
+    delta_longitude_radians = math.radians(end_point[1] - start_point[1])
+
+    x_component = math.sin(delta_longitude_radians) * math.cos(end_latitude_radians)
+    y_component = (
+        math.cos(start_latitude_radians) * math.sin(end_latitude_radians)
+        - math.sin(start_latitude_radians)
+        * math.cos(end_latitude_radians)
+        * math.cos(delta_longitude_radians)
+    )
+
+    return (math.degrees(math.atan2(x_component, y_component)) + 360.0) % 360.0
+
+
+def _bearing_difference_degrees(first_bearing: float, second_bearing: float) -> float:
+    return abs((first_bearing - second_bearing + 180.0) % 360.0 - 180.0)
+
+
+def _polyline_bearing_degrees(points: list[tuple[float, float]]) -> float | None:
+    if len(points) < 2:
+        return None
+
+    return calculate_bearing_degrees(points[0], points[-1])
+
+
+def route_direction_matches_incident(
+    route_points: list[tuple[float, float]],
+    incident_points: list[tuple[float, float]],
+    max_bearing_difference_degrees: float = 45.0,
+) -> bool:
+    route_bearing = _polyline_bearing_degrees(route_points)
+    incident_bearing = _polyline_bearing_degrees(incident_points)
+
+    if route_bearing is None or incident_bearing is None:
+        return True
+
+    return _bearing_difference_degrees(route_bearing, incident_bearing) <= max_bearing_difference_degrees
+
+
 def _orientation(
     point_a: tuple[float, float],
     point_b: tuple[float, float],
@@ -184,6 +228,7 @@ def incident_matches_route(
     incident_points: list[tuple[float, float]],
     overlap_threshold_ratio: float = 0.20,
     proximity_threshold_m: float = 30.0,
+    strict_mode: bool = False,
 ) -> tuple[bool, float, bool]:
     route_intersects = route_intersects_incident(route_points, incident_points)
     densified_route_points = densify_polyline(route_points)
@@ -193,8 +238,20 @@ def incident_matches_route(
         incident_points=densified_incident_points,
         threshold_m=proximity_threshold_m,
     )
+    direction_matches = route_direction_matches_incident(
+        route_points=densified_route_points,
+        incident_points=densified_incident_points,
+    )
 
-    is_valid_congestion = route_intersects or overlap_ratio >= overlap_threshold_ratio
+    if strict_mode:
+        is_valid_congestion = direction_matches and (
+            route_intersects or overlap_ratio >= overlap_threshold_ratio
+        )
+    else:
+        is_valid_congestion = route_intersects or (
+            overlap_ratio >= overlap_threshold_ratio and direction_matches
+        )
+
     return is_valid_congestion, overlap_ratio, route_intersects
 
 

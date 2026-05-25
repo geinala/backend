@@ -1,5 +1,3 @@
-from typing import TypedDict
-
 class ValidationError:
     def __init__(
         self,
@@ -20,8 +18,3 @@ class ValidationError:
             "invalid_value": self.invalid_value,
             "error_message": self.error_message,
         }
-        
-class CSVValidationResult(TypedDict):
-    errors: list[ValidationError]
-    row_count: int
-    invalid_row_count: int

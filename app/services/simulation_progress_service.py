@@ -1,17 +1,33 @@
 import time
+import re
 from datetime import datetime, timezone
-from typing import Sequence
+from typing import Sequence, cast
+
+from rq import get_current_job
+from rq.job import Job
 
 from app.configs.environment_configuration import get_environment_configuration
+from app.configs.worker_configuration import JobType
+from app.constants.job_prefixes import JOB_PREFIXES_ENUM
 from app.lib.logging.logging import get_logger
-from app.lib.route_geometry import build_coordinate_points, build_incident_bbox, decode_polyline, incident_matches_route
+from app.lib.route_geometry import (
+    build_coordinate_points,
+    build_incident_bbox,
+    decode_polyline,
+    incident_matches_route,
+    route_direction_matches_incident,
+)
+from app.services.job_service import enqueue_job
+from app.repositories.optimization_run_repository import OptimizationRunRepository
 from app.models.traffic_incident import TrafficIncident
 from app.repositories.node_repository import NodeRepository
-from app.repositories.route_leg_congestion_check_repository import RouteLegCongestionCheckRepository
 from app.repositories.route_repository import DueArrivalEvent, NextRouteLegSnapshot, RouteRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.repositories.traffic_incident_repository import TrafficIncidentRepository
+from app.repositories.route_leg_congestion_check_repository import RouteLegCongestionCheckRepository
+from app.schemas.route_leg_congestion_check_schema import CongestionCheckIncidentRow
 from app.services.tomtom_service import IncidentFeature, TomTomService
+from app.workers import dvrp_reoptimization_worker_process_congestion
 from app.workers.events_worker import (
     emit_next_route_congestion_detected_event,
     emit_vehicle_arrived_event,
@@ -22,25 +38,26 @@ from app.workers.events_worker import (
 logger = get_logger(__name__)
 CONGESTION_CHECK_DELAY_SECONDS = 5
 settings = get_environment_configuration()
-
-
 class SimulationProgressService:
     def __init__(
         self,
         route_repository: RouteRepository,
         route_leg_congestion_check_repository: RouteLegCongestionCheckRepository,
         node_repository: NodeRepository,
+        optimization_run_repository: OptimizationRunRepository,
         simulation_repository: SimulationRepository,
         traffic_incident_repository: TrafficIncidentRepository,
+        matrix_service: object,
         tomtom_service: TomTomService,
     ):
         self.route_repository = route_repository
         self.route_leg_congestion_check_repository = route_leg_congestion_check_repository
         self.node_repository = node_repository
+        self.optimization_run_repository = optimization_run_repository
         self.simulation_repository = simulation_repository
         self.traffic_incident_repository = traffic_incident_repository
+        self.matrix_service = matrix_service
         self.tomtom_service = tomtom_service
-
     def process_running_simulation_arrivals(
         self,
         reference_time: datetime,
@@ -58,6 +75,8 @@ class SimulationProgressService:
             due_arrivals = self.route_repository.get_due_arrival_events_for_running_simulations(reference_time)
 
             transitioned_arrivals: list[tuple[DueArrivalEvent, bool]] = []
+            current_job: Job | None = get_current_job()
+
             for arrival in due_arrivals:
                 updated = self.route_repository.mark_route_leg_as_visited(arrival["route_leg_id"])
                 if not updated:
@@ -83,7 +102,7 @@ class SimulationProgressService:
                     )
 
                     if next_route_leg is not None:
-                        self._process_next_route_leg(arrival, next_route_leg)
+                        self._process_next_route_leg(arrival, next_route_leg, current_job=current_job)
 
                 self.simulation_repository.apply_arrival_progress(
                     simulation_id=arrival["simulation_id"],
@@ -143,6 +162,7 @@ class SimulationProgressService:
         self,
         arrival: DueArrivalEvent,
         next_route_leg: NextRouteLegSnapshot,
+        current_job: Job | None = None,
     ) -> None:
         route_points = decode_polyline(
             next_route_leg["encoded_polyline"],
@@ -195,47 +215,85 @@ class SimulationProgressService:
             }
         )
 
-        congestion_incident, incident_match_debugs = self._find_congestion_incident(
+        result: tuple[IncidentFeature | list[IncidentFeature] | None, list[dict[str, object]]]
+        result = self._find_congestion_incident(
             incidents,
             route_points,
             threshold_seconds=settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS,
         )
+        congestion_result, incident_match_debugs = result
 
         accepted_incident_id: int | None = None
-        if congestion_incident is not None:
-            incident_properties = congestion_incident["properties"]
-            stored_incident = stored_incidents_by_tomtom_id.get(incident_properties["id"])
-            accepted_incident_id = stored_incident.id if stored_incident is not None else None
+        selected_tomtom_incident_id: str | None = None
+        accepted_incident_ids: list[int] = []
+        accepted_incidents: list[IncidentFeature] = []
+        if congestion_result is not None:
+            if isinstance(congestion_result, list):
+                accepted_incidents = congestion_result
+            else:
+                accepted_incidents = [congestion_result]
 
-        self.route_leg_congestion_check_repository.store_congestion_check(
+            selected_incident = max(accepted_incidents, key=lambda inc: inc["properties"]["delay"])
+            selected_tomtom_incident_id = selected_incident["properties"]["id"]
+
+            for inc in accepted_incidents:
+                incident_properties = inc["properties"]
+                stored_incident = stored_incidents_by_tomtom_id.get(incident_properties["id"])
+                if stored_incident is not None:
+                    accepted_incident_ids.append(stored_incident.id)
+
+            stored_selected_incident = stored_incidents_by_tomtom_id.get(selected_tomtom_incident_id)
+            accepted_incident_id = stored_selected_incident.id if stored_selected_incident is not None else None
+
+        congestion_detected = len(accepted_incidents) > 0
+        incident_rows, aggregated_delay, selected_traffic_incident_id = self._build_congestion_check_incident_rows(
+            incidents=incidents,
+            incident_match_debugs=incident_match_debugs,
+            stored_incidents_by_tomtom_id=stored_incidents_by_tomtom_id,
+        )
+
+        accepted_incident_ids = [
+            row["traffic_incident_id"]
+            for row in incident_rows
+            if row["is_valid_congestion"] and row["traffic_incident_id"] is not None
+        ]
+        accepted_incident_count = len(accepted_incident_ids)
+
+        if selected_traffic_incident_id is not None:
+            accepted_incident_id = selected_traffic_incident_id
+
+        congestion_check = self.route_leg_congestion_check_repository.store_congestion_check(
             simulation_id=arrival["simulation_id"],
             route_leg_id=next_route_leg["route_leg_id"],
             courier_id=arrival["courier_id"],
             checked_at=detection_time,
             bbox=incident_bbox,
             incidents_found=len(incidents),
-            accepted_incident_id=accepted_incident_id,
-            match_details={
-                "incident_count": len(incidents),
-                "accepted_incident_id": accepted_incident_id,
-                "congestion_detected": congestion_incident is not None,
-                "threshold_seconds": settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS,
-                "incident_match_debugs": incident_match_debugs,
-            },
+            accepted_incident_count=accepted_incident_count,
+            total_delay_in_seconds=aggregated_delay,
         )
 
-        if congestion_incident is not None:
-            incident_properties = congestion_incident["properties"]
+        # If research multi-accept mode, persist per-incident association rows
+        if incident_rows:
+            try:
+                self.route_leg_congestion_check_repository.store_congestion_check_incidents(
+                    congestion_check.id,
+                    incident_rows,
+                )
+            except Exception:
+                # Don't fail the whole worker if persisting association rows fails; log and continue
+                logger.exception("Failed storing congestion check incident associations")
+
+        if congestion_detected:
+            # Prepare metadata and aggregated values for event/enqueue
+            tomtom_ids = [inc["properties"]["id"] for inc in accepted_incidents]
             incident_match_debug = next(
                 (
-                    incident_match_debug
-                    for incident_match_debug in incident_match_debugs
-                    if incident_match_debug["incident_id"] == incident_properties["id"]
+                    imd for imd in incident_match_debugs if imd["incident_id"] == selected_tomtom_incident_id
                 ),
                 None,
             )
-            stored_incident = stored_incidents_by_tomtom_id.get(incident_properties["id"])
-            traffic_incident_db_id = stored_incident.id if stored_incident is not None else None
+            traffic_incident_db_id = accepted_incident_id
 
             logger.info(
                 {
@@ -245,13 +303,14 @@ class SimulationProgressService:
                     "courier_id": arrival["courier_id"],
                     "route_leg_id": next_route_leg["route_leg_id"],
                     "sequence": next_route_leg["sequence"],
-                    "incident_delay_seconds": incident_properties["delay"],
-                    "incident_id": incident_properties["id"],
-                    "incident_type": congestion_incident["type"],
+                    "incident_delay_seconds": [row["delay_in_seconds"] for row in incident_rows if row["is_valid_congestion"]],
+                    "incident_ids": tomtom_ids,
+                    "incident_type": [inc.get("type") for inc in accepted_incidents],
                     "incident_match_debug": incident_match_debug,
                     "incident_match_debugs": incident_match_debugs,
-                    "traffic_incident_db_id": traffic_incident_db_id,
+                    "accepted_incident_db_ids": accepted_incident_ids,
                     "detected_at": detection_time.isoformat(),
+                    "total_delay_in_seconds": aggregated_delay,
                 }
             )
 
@@ -261,10 +320,34 @@ class SimulationProgressService:
                 courier_id=arrival["courier_id"],
                 route_leg_id=next_route_leg["route_leg_id"],
                 sequence=next_route_leg["sequence"],
-                traffic_delay_in_seconds=incident_properties["delay"],
+                traffic_delay_in_seconds=aggregated_delay,
                 threshold_seconds=settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS,
                 latitude=next_route_leg["destination_latitude"],
                 longitude=next_route_leg["destination_longitude"],
+                metadata={
+                    "multi_accept": settings.TRAFFIC_CONGESTION_MULTI_ACCEPT_MODE,
+                    "accepted_tomtom_ids": tomtom_ids,
+                    "accepted_db_ids": accepted_incident_ids,
+                    "accepted_delays": [row["delay_in_seconds"] for row in incident_rows if row["is_valid_congestion"]],
+                    "chosen_tomtom_id": selected_tomtom_incident_id,
+                    "chosen_db_id": accepted_incident_id,
+                    "total_delay_in_seconds": aggregated_delay,
+                },
+            )
+
+            enqueue_job(
+                dvrp_reoptimization_worker_process_congestion,
+                job_type=JobType.HEAVY,
+                job_prefix=JOB_PREFIXES_ENUM.DVRP_REOPTIMIZATION,
+                depends_on=current_job,
+                simulation_id=arrival["simulation_id"],
+                congestion_check_id=congestion_check.id,
+                route_leg_id=next_route_leg["route_leg_id"],
+                courier_route_id=arrival["courier_route_id"],
+                courier_id=arrival["courier_id"],
+                current_sequence=next_route_leg["sequence"],
+                delay_seconds=aggregated_delay,
+                traffic_incident_id=traffic_incident_db_id,
             )
         else:
             logger.info(
@@ -295,6 +378,11 @@ class SimulationProgressService:
             incident_points=incident_points,
             overlap_threshold_ratio=overlap_threshold_ratio,
             proximity_threshold_m=proximity_threshold_m,
+            strict_mode=settings.TRAFFIC_CONGESTION_STRICT_MODE,
+        )
+        direction_matches = route_direction_matches_incident(
+            route_points=route_points,
+            incident_points=incident_points,
         )
 
         rejected_reasons: list[str] = []
@@ -302,6 +390,8 @@ class SimulationProgressService:
             rejected_reasons.append("delay_below_threshold")
         if not route_intersects and overlap_ratio < overlap_threshold_ratio:
             rejected_reasons.append("insufficient_route_overlap")
+        if overlap_ratio >= overlap_threshold_ratio and not direction_matches:
+            rejected_reasons.append("direction_mismatch")
 
         return {
             "incident_id": incident_properties["id"],
@@ -311,18 +401,139 @@ class SimulationProgressService:
             "route_intersects": route_intersects,
             "overlap_ratio": overlap_ratio,
             "overlap_threshold_ratio": overlap_threshold_ratio,
+            "direction_matches": direction_matches,
             "proximity_threshold_m": proximity_threshold_m,
             "delay_threshold_seconds": threshold_seconds,
             "is_valid_congestion": is_valid_congestion,
             "rejected_reasons": rejected_reasons,
         }
 
+    @staticmethod
+    def _normalize_cluster_label(value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        normalized_value = value.strip().lower()
+        normalized_value = normalized_value.replace(".", " ")
+        normalized_value = re.sub(r"\b(jl|jln|jalan|street|road|rd|ave|avenue)\b", "", normalized_value)
+        normalized_value = re.sub(r"\b(north|south|east|west|utara|selatan|timur|barat)\b", "", normalized_value)
+        normalized_value = re.sub(r"[^\w\s-]+", " ", normalized_value)
+        normalized_value = re.sub(r"\s+", " ", normalized_value).strip()
+
+        return normalized_value or None
+
+    @staticmethod
+    def _build_incident_cluster_key(incident: IncidentFeature) -> str | None:
+        properties = incident["properties"]
+        candidates = (
+            properties.get("from"),
+            properties.get("to"),
+        )
+
+        for candidate in candidates:
+            normalized_label = SimulationProgressService._normalize_cluster_label(candidate)
+            if normalized_label:
+                return f"road:{normalized_label}"
+
+        coordinates = incident["geometry"].get("coordinates", [])
+        if not coordinates:
+            return None
+
+        latitudes = [float(point[1]) for point in coordinates]
+        longitudes = [float(point[0]) for point in coordinates]
+        centroid_latitude = sum(latitudes) / len(latitudes)
+        centroid_longitude = sum(longitudes) / len(longitudes)
+        return f"geo:{round(centroid_latitude, 3)}:{round(centroid_longitude, 3)}"
+
+    def _build_congestion_check_incident_rows(
+        self,
+        *,
+        incidents: Sequence[IncidentFeature],
+        incident_match_debugs: list[dict[str, object]],
+        stored_incidents_by_tomtom_id: dict[str, TrafficIncident],
+    ) -> tuple[list[CongestionCheckIncidentRow], int, int | None]:
+        rows: list[CongestionCheckIncidentRow] = []
+        valid_cluster_keys: list[str] = []
+        rows_by_cluster_key: dict[str, list[CongestionCheckIncidentRow]] = {}
+
+        for incident, incident_match_debug in zip(incidents, incident_match_debugs):
+            tomtom_incident_id = incident["properties"]["id"]
+            stored_incident = stored_incidents_by_tomtom_id.get(tomtom_incident_id)
+            is_valid_congestion = bool(incident_match_debug["is_valid_congestion"])
+            cluster_key = self._build_incident_cluster_key(incident) if is_valid_congestion else None
+            overlap_ratio = cast(float | None, incident_match_debug.get("overlap_ratio"))
+            rejected_reasons = cast(list[str], incident_match_debug.get("rejected_reasons", []))
+            direction_matches = cast(bool | None, incident_match_debug.get("direction_matches"))
+            route_point_count = cast(int | None, incident_match_debug.get("route_point_count"))
+            incident_point_count = cast(int | None, incident_match_debug.get("incident_point_count"))
+            delay_threshold_seconds = cast(int, incident_match_debug["delay_threshold_seconds"])
+            overlap_threshold_ratio = cast(float, incident_match_debug["overlap_threshold_ratio"])
+            proximity_threshold_m = cast(int, incident_match_debug["proximity_threshold_m"])
+            row: CongestionCheckIncidentRow = {
+                "traffic_incident_id": stored_incident.id if stored_incident is not None else None,
+                "tomtom_incident_id": tomtom_incident_id,
+                "delay_in_seconds": int(incident["properties"]["delay"]),
+                "overlap_ratio": overlap_ratio,
+                "rejected_reasons": rejected_reasons,
+                "route_intersects": bool(incident_match_debug.get("route_intersects", False)),
+                "is_valid_congestion": is_valid_congestion,
+                "direction_matches": direction_matches,
+                "route_point_count": route_point_count,
+                "incident_point_count": incident_point_count,
+                "cluster_group": None,
+                "chosen_for_reopt": False,
+                "delay_contribution_in_seconds": 0,
+                "delay_threshold_in_seconds": delay_threshold_seconds,
+                "overlap_threshold": overlap_threshold_ratio,
+                "proximity_threshold_in_meters": proximity_threshold_m,
+            }
+            rows.append(row)
+
+            if cluster_key is None:
+                continue
+
+            if cluster_key not in rows_by_cluster_key:
+                valid_cluster_keys.append(cluster_key)
+                rows_by_cluster_key[cluster_key] = []
+
+            rows_by_cluster_key[cluster_key].append(row)
+
+        total_delay_in_seconds = 0
+        selected_traffic_incident_id: int | None = None
+        selected_delay_in_seconds = -1
+
+        for cluster_group, cluster_key in enumerate(valid_cluster_keys, start=1):
+            cluster_rows = rows_by_cluster_key[cluster_key]
+            winner = max(
+                cluster_rows,
+                key=lambda row: (
+                    int(row["delay_in_seconds"]),
+                    bool(row["direction_matches"]),
+                    float(row["overlap_ratio"] or 0.0),
+                    bool(row["route_intersects"]),
+                ),
+            )
+
+            for row in cluster_rows:
+                row["cluster_group"] = cluster_group
+
+            winner["chosen_for_reopt"] = True
+            winner["delay_contribution_in_seconds"] = int(winner["delay_in_seconds"])
+            total_delay_in_seconds += int(winner["delay_in_seconds"])
+
+            winner_traffic_incident_id = winner["traffic_incident_id"]
+            if winner_traffic_incident_id is not None and int(winner["delay_in_seconds"]) > selected_delay_in_seconds:
+                selected_delay_in_seconds = int(winner["delay_in_seconds"])
+                selected_traffic_incident_id = winner_traffic_incident_id
+
+        return rows, total_delay_in_seconds, selected_traffic_incident_id
+
     def _find_congestion_incident(
         self,
         incidents: Sequence[IncidentFeature],
         route_points: list[tuple[float, float]],
         threshold_seconds: int = 420,
-    ) -> tuple[IncidentFeature | None, list[dict[str, object]]]:
+    ) -> tuple[IncidentFeature | list[IncidentFeature] | None, list[dict[str, object]]]:
         congested_incidents: list[IncidentFeature] = []
         incident_match_debugs: list[dict[str, object]] = []
 
@@ -342,4 +553,9 @@ class SimulationProgressService:
         if not congested_incidents:
             return None, incident_match_debugs
 
+        # If multi-accept mode is enabled, return all congested incidents (research mode)
+        if settings.TRAFFIC_CONGESTION_MULTI_ACCEPT_MODE:
+            return congested_incidents, incident_match_debugs
+
+        # Default behavior: return single incident with max delay
         return max(congested_incidents, key=lambda incident: incident["properties"]["delay"]), incident_match_debugs

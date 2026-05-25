@@ -18,3 +18,5 @@ class SolverProblem:
     courier: Courier
     time_limit_seconds: int = 60
     depot_index: int = 0
+    start_index: int = 0
+    end_index: int | None = None

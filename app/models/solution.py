@@ -1,6 +1,5 @@
 import uuid
 
-from pydantic import BaseModel
 from sqlalchemy import Integer, ForeignKey, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.dialects.postgresql import JSONB
@@ -19,10 +18,3 @@ class Solution(Base):
     
     simulation = relationship("Simulation", back_populates="solutions")
     courier = relationship("Courier", back_populates="solutions")
-    
-class CreateSolution(BaseModel):
-    simulation_id: str
-    courier_id: int
-    routes: list[int]
-    demand_in_kilograms: float
-    time_in_seconds: int

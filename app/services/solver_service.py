@@ -4,13 +4,13 @@ from typing import Literal
 from ortools.constraint_solver import pywrapcp
 
 from app.lib.logging.logging import get_logger
-from app.models.solution import CreateSolution
 from app.models.courier import Courier
 from app.models.node import Node
 from app.repositories.node_repository import NodeRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.repositories.solution_repository import SolutionRepository
 from app.repositories.courier_repository import CourierRepository
+from app.schemas.solution_schema import CreateSolution
 from app.services.matrix_service import MatrixService
 from app.services.solver import GreedySolver, Route, SolverProblem, TabuSearchSolver
 

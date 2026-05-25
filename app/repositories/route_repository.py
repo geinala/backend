@@ -1,12 +1,24 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TypedDict
 
 from sqlalchemy.orm import Session
 
 from app.models.simulation import Simulation, SimulationStatusEnum
 from app.models.solution import Solution
-from app.models.route import CreateRouteLeg, RouteLeg, RouteStatusEnum
 from app.models.courier_route import CourierRoute
+from app.models.route import RouteLeg, RouteStatusEnum
+from app.schemas.route_schema import CreateRouteLeg
+
+
+class CourierRouteSnapshot(TypedDict):
+    courier_route_id: int
+    solution_id: int
+    simulation_id: str
+    courier_id: int
+    route_version: int
+    total_distance_in_meters: int
+    total_time_in_seconds: int
+    routes: list[int]
 
 
 class DueArrivalEvent(TypedDict):
@@ -90,6 +102,94 @@ class RouteRepository:
             objects.append(RouteLeg(**leg_data))
 
         self.db.bulk_save_objects(objects)
+
+    def get_courier_route_snapshot(self, courier_route_id: int) -> CourierRouteSnapshot | None:
+        row = (
+            self.db.query(
+                CourierRoute.id,
+                CourierRoute.solution_id,
+                Solution.simulation_id,
+                CourierRoute.courier_id,
+                CourierRoute.route_version,
+                CourierRoute.total_distance_in_meters,
+                CourierRoute.total_time_in_seconds,
+                Solution.routes,
+            )
+            .join(Solution, Solution.id == CourierRoute.solution_id)
+            .filter(CourierRoute.id == courier_route_id)
+            .first()
+        )
+
+        if row is None:
+            return None
+
+        return {
+            "courier_route_id": int(row[0]),
+            "solution_id": int(row[1]),
+            "simulation_id": str(row[2]),
+            "courier_id": int(row[3]),
+            "route_version": int(row[4]),
+            "total_distance_in_meters": int(row[5]),
+            "total_time_in_seconds": int(row[6]),
+            "routes": list(row[7]),
+        }
+
+    def get_route_leg_by_id(self, route_leg_id: int) -> RouteLeg | None:
+        return self.db.query(RouteLeg).filter(RouteLeg.id == route_leg_id).first()
+
+    def get_route_legs_by_courier_route_id(self, courier_route_id: int) -> list[RouteLeg]:
+        return (
+            self.db.query(RouteLeg)
+            .filter(RouteLeg.courier_route_id == courier_route_id)
+            .order_by(RouteLeg.sequence.asc())
+            .all()
+        )
+
+    def delete_route_legs_after_sequence(self, courier_route_id: int, sequence: int) -> int:
+        deleted_rows = (
+            self.db.query(RouteLeg)
+            .filter(RouteLeg.courier_route_id == courier_route_id)
+            .filter(RouteLeg.sequence > sequence)
+            .delete(synchronize_session=False)
+        )
+
+        return int(deleted_rows or 0)
+
+    def shift_route_legs_after_sequence(self, courier_route_id: int, sequence: int, delay_seconds: int) -> int:
+        route_legs = (
+            self.db.query(RouteLeg)
+            .filter(RouteLeg.courier_route_id == courier_route_id)
+            .filter(RouteLeg.sequence >= sequence)
+            .order_by(RouteLeg.sequence.asc())
+            .all()
+        )
+
+        if not route_legs:
+            return 0
+
+        for route_leg in route_legs:
+            if route_leg.sequence == sequence:
+                route_leg.travel_time_in_seconds += delay_seconds
+                route_leg.traffic_delay_in_seconds += delay_seconds
+                route_leg.live_traffic_incidents_travel_time_in_seconds += delay_seconds
+                route_leg.arrival_time = route_leg.arrival_time + timedelta(seconds=delay_seconds)
+            else:
+                route_leg.departure_time = route_leg.departure_time + timedelta(seconds=delay_seconds)
+                route_leg.arrival_time = route_leg.arrival_time + timedelta(seconds=delay_seconds)
+
+        return len(route_legs)
+
+    def update_route_leg_delay(self, route_leg_id: int, delay_seconds: int) -> bool:
+        route_leg = self.get_route_leg_by_id(route_leg_id)
+
+        if route_leg is None:
+            return False
+
+        route_leg.travel_time_in_seconds += delay_seconds
+        route_leg.traffic_delay_in_seconds += delay_seconds
+        route_leg.live_traffic_incidents_travel_time_in_seconds += delay_seconds
+        route_leg.arrival_time = route_leg.arrival_time + timedelta(seconds=delay_seconds)
+        return True
 
     def get_due_arrival_events_for_running_simulations(self, reference_time: datetime) -> list[DueArrivalEvent]:
         rows = (

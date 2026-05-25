@@ -22,5 +22,6 @@ class TrafficIncident(Base):
     from_address: Mapped[str] = mapped_column(String, nullable=True)
     to_address: Mapped[str] = mapped_column(String, nullable=True)
     detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    incident_description: Mapped[str] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=func.now())
     

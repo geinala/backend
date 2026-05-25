@@ -16,5 +16,6 @@ class JOB_PREFIXES_ENUM(str, Enum):
     GET_OPTIMIZATION_RESULT = JobType.HEAVY.value + "-" + "get_optimization_result"
     ROUTE_GENERATION = JobType.HEAVY.value + "-" + "route_generation"
     OPTIMIZATION_BY_COURIER = JobType.HEAVY.value + "-" + "optimization_by_courier"
+    DVRP_REOPTIMIZATION = JobType.HEAVY.value + "-" + "dvrp_reoptimization"
     FINALIZE_SOLVER = JobType.LIGHT.value + "-" + "solver_finalize"
     SIMULATION_LOG = JobType.LIGHT.value + "-" + "simulation_log"

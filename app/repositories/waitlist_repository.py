@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from typing import TypedDict
 
 from app.lib.logging.logging import get_logger
-from app.models.waitlist import Waitlist, WaitlistStatusEnum, WaitlistUpdateData
+from app.models.waitlist import Waitlist, WaitlistStatusEnum
+from app.schemas.waitlist_schema import WaitlistUpdateData
 
 logger = get_logger(__name__)
 

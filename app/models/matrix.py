@@ -5,7 +5,6 @@ import uuid
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
-from pydantic import BaseModel
 from app.lib.db import Base, enum_values
 
 class MatrixBatchStatusEnum(enum.Enum):
@@ -49,25 +48,3 @@ class MatrixResult(Base):
     traffic_delay_in_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     matrix_batch_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('matrix_batches.id'), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    
-class CreateMatrixBatchData(BaseModel):
-    simulation_id: str
-    origin_start_index: int
-    origin_end_index: int
-    destination_start_index: int
-    destination_end_index: int
-    tomtom_job_id: str
-    status: MatrixBatchStatusEnum = MatrixBatchStatusEnum.submitted
-    
-class UpdateMatrixBatchStatusData(BaseModel):
-    status: MatrixBatchStatusEnum
-    completed_at: datetime | None = None
-    
-class CreateMatrixResultData(BaseModel):
-    simulation_id: str
-    origin_index: int
-    destination_index: int
-    length_in_meters: int
-    travel_time_in_seconds: int
-    traffic_delay_in_seconds: int
-    matrix_batch_id: int

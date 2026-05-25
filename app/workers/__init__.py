@@ -1,5 +1,6 @@
 from .solver_worker import get_solution as solver_get_solution
 from .optimization_worker import optimize as optimization_worker_optimize
+from .dvrp_reoptimization_worker import process_congestion_reoptimization as dvrp_reoptimization_worker_process_congestion
 from .matrix_worker import (
 	generate_matrices as _matrix_worker_generate_matrices,
 	get_matrix_results as _matrix_worker_get_matrix_results,
@@ -21,6 +22,7 @@ async def matrix_worker_get_matrix_results(simulation_id: str):
 __all__ = [
 	"solver_get_solution",
 	"optimization_worker_optimize",
+	"dvrp_reoptimization_worker_process_congestion",
 	"matrix_worker_generate_matrices",
 	"matrix_worker_get_matrix_results",
 	"simulation_progress_worker_process_running_simulation_arrivals",

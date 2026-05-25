@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
-from app.models.solution import CreateSolution, Solution
+from app.models.solution import Solution
+from app.schemas.solution_schema import CreateSolution
 
 class SolutionRepository:
     def __init__(self, db: Session):

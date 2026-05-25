@@ -34,6 +34,11 @@ class TrafficIncidentRepository:
         incident_properties = incident["properties"]
         tomtom_incident_id = incident_properties["id"]
         length_in_meters = int(round(incident_properties["length"]))
+        event_descriptions = [
+            event["description"]
+            for event in incident_properties.get("events", [])
+            if event.get("description")
+        ]
 
         payload: dict[str, object] = {
             "tomtom_incident_id": tomtom_incident_id,
@@ -47,6 +52,7 @@ class TrafficIncidentRepository:
             "length_in_meters": length_in_meters,
             "from_address": incident_properties.get("from"),
             "to_address": incident_properties.get("to"),
+            "incident_description": "; ".join(event_descriptions) if event_descriptions else None,
         }
 
         existing_incident = (

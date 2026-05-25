@@ -41,6 +41,10 @@ class EnvironmentConfiguration(BaseSettings):
 
     # Traffic Congestion Configuration
     TRAFFIC_CONGESTION_THRESHOLD_SECONDS: int = int(os.getenv("TRAFFIC_CONGESTION_THRESHOLD_SECONDS", 420))
+    # If true, require incident direction to match the route even when geometries intersect
+    TRAFFIC_CONGESTION_STRICT_MODE: bool = os.getenv("TRAFFIC_CONGESTION_STRICT_MODE", "false").lower() == "true"
+    # If true, accept multiple valid incidents for the same route leg (research mode)
+    TRAFFIC_CONGESTION_MULTI_ACCEPT_MODE: bool = os.getenv("TRAFFIC_CONGESTION_MULTI_ACCEPT_MODE", "false").lower() == "true"
 
     # FastAPI (Health checks only)
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")

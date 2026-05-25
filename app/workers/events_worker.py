@@ -1,4 +1,5 @@
 import json
+from typing import Mapping, Any
 
 from app.configs.worker_configuration import JobType
 from app.constants.job_prefixes import JOB_PREFIXES_ENUM
@@ -109,6 +110,7 @@ def emit_next_route_congestion_detected_event(
     threshold_seconds: int,
     latitude: float,
     longitude: float,
+    metadata: Mapping[str, Any] | None = None,
 ) -> None:
     delay_minutes = traffic_delay_in_seconds / 60
     threshold_minutes = threshold_seconds / 60
@@ -125,6 +127,17 @@ def emit_next_route_congestion_detected_event(
         courier_id=courier_id,
     )
 
+    log_metadata: dict[str, Any] = {
+        "threshold_seconds": threshold_seconds,
+        "traffic_delay_in_seconds": traffic_delay_in_seconds,
+        "traffic_delay_in_minutes": round(delay_minutes, 2),
+        "route_leg_id": route_leg_id,
+        "sequence": sequence,
+    }
+
+    # `update` accepts a Mapping; use empty dict when metadata is None
+    log_metadata.update(metadata or {})
+
     logger.warning(
         {
             "event_type": "next_route_congestion_detected",
@@ -137,15 +150,7 @@ def emit_next_route_congestion_detected_event(
             "threshold_seconds": threshold_seconds,
             "latitude": latitude,
             "longitude": longitude,
-            "metadata": json.dumps(
-                {
-                    "threshold_seconds": threshold_seconds,
-                    "traffic_delay_in_seconds": traffic_delay_in_seconds,
-                    "traffic_delay_in_minutes": round(delay_minutes, 2),
-                    "route_leg_id": route_leg_id,
-                    "sequence": sequence,
-                }
-            ),
+            "metadata": json.dumps(log_metadata),
         }
     )
 

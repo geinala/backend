@@ -1,13 +1,7 @@
 from sqlalchemy.orm import Session
 
-from app.models.matrix import (
-    CreateMatrixBatchData,
-    CreateMatrixResultData,
-    MatrixBatch,
-    MatrixBatchStatusEnum,
-    MatrixResult,
-    UpdateMatrixBatchStatusData,
-)
+from app.models.matrix import MatrixBatch, MatrixBatchStatusEnum, MatrixResult
+from app.schemas.matrix_schema import CreateMatrixBatchData, CreateMatrixResultData, UpdateMatrixBatchStatusData
 
 
 class MatrixRepository:

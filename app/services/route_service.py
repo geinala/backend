@@ -7,11 +7,12 @@ from app.models.courier import Courier
 from app.models.node import Node
 from app.models.simulation import SimulationStatusEnum
 from app.models.solution import Solution
-from app.models.route import CreateRouteLeg, RouteStatusEnum
+from app.models.route import RouteStatusEnum
 from app.repositories.courier_route_repository import CourierRouteRepository
 from app.repositories.optimization_run_repository import OptimizationRunRepository
 from app.schemas.courier_route_schema import CreateCourierRoute
 from app.schemas.optimization_run_schema import CreateOptimizationRun
+from app.schemas.route_schema import CreateRouteLeg
 from app.repositories.route_repository import RouteRepository
 from app.repositories.courier_repository import CourierRepository
 from app.services.tomtom_service import TomTomRouteResultResponse, TomTomService

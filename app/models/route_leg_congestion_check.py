@@ -1,7 +1,12 @@
 from app.lib.db import Base
 from sqlalchemy import Integer, String, ForeignKey, DateTime, Float, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.route_leg_congestion_check_incident import RouteLegCongestionCheckIncident
 
 class RouteLegCongestionCheck(Base):
     __tablename__ = "route_leg_congestion_checks"
@@ -18,7 +23,13 @@ class RouteLegCongestionCheck(Base):
     bbox_max_lat: Mapped[float] = mapped_column(Float, nullable=False)
 
     incidents_found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # Jumlah insiden yang ditemukan dalam bounding box pada saat pengecekan
-    accepted_incident_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Jika ada insiden yang ditemukan dan dianggap relevan, simpan ID-nya di sini
 
-    match_details: Mapped[str | None] = mapped_column(String, nullable=True)  # Detail tentang bagaimana insiden yang ditemukan cocok dengan rute leg ini, termasuk alasan mengapa insiden tersebut dianggap relevan atau tidak relevan
+    # Aggregates to support multi-accept research mode
+    accepted_incident_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_delay_in_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    incidents: Mapped[list["RouteLegCongestionCheckIncident"]] = relationship(
+        "RouteLegCongestionCheckIncident",
+        back_populates="congestion_check",
+    )
+    
