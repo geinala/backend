@@ -101,15 +101,7 @@ class RouteService:
                 courier=courier,
             )
 
-            greedy_route, greedy_computation_time_in_ms = self._solve_problem(
-                GreedySolver(),
-                problem,
-                demands,
-                selected_node_indices,
-                courier,
-            )
-            tabu_route, tabu_computation_time_in_ms = self._solve_problem(
-                TabuSearchSolver(),
+            (tabu_route, tabu_computation_time_in_ms), (greedy_route, greedy_computation_time_in_ms) = await self._solve_problem_priority_queue(
                 problem,
                 demands,
                 selected_node_indices,
@@ -166,7 +158,6 @@ class RouteService:
                 [
                     CreateOptimizationRun(
                         simulation_id=route_build["solution"].simulation_id,
-                        courier_route_id=courier_route.id,
                         run_type="initial",
                         algorithm="greedy",
                         trigger_type="initial",
@@ -174,12 +165,11 @@ class RouteService:
                         total_travel_time_in_seconds=route_build["greedy_summary"]["travelTimeInSeconds"],
                         computation_time_in_ms=route_build["greedy_computation_time_in_ms"],
                         total_nodes_explored=route_build["nodes_explored"],
-                        traffic_incident_id=None,
+                        congestion_check_id=None,
                         triggered_at=triggered_at,
                     ),
                     CreateOptimizationRun(
                         simulation_id=route_build["solution"].simulation_id,
-                        courier_route_id=courier_route.id,
                         run_type="initial",
                         algorithm="tabu_search",
                         trigger_type="initial",
@@ -187,11 +177,9 @@ class RouteService:
                         total_travel_time_in_seconds=route_build["tabu_summary"]["travelTimeInSeconds"],
                         computation_time_in_ms=route_build["tabu_computation_time_in_ms"],
                         total_nodes_explored=route_build["nodes_explored"],
-                        traffic_incident_id=None,
+                        congestion_check_id=None,
                         before_total_distance_in_meters=route_build["greedy_summary"]["lengthInMeters"],
                         before_total_travel_time_in_seconds=route_build["greedy_summary"]["travelTimeInSeconds"],
-                        before_computation_time_in_ms=route_build["greedy_computation_time_in_ms"],
-                        before_total_nodes_explored=route_build["nodes_explored"],
                         triggered_at=triggered_at,
                     ),
                 ]
@@ -298,6 +286,50 @@ class RouteService:
         computation_time_in_ms = (time.time() - start_time) * 1000
 
         return route, computation_time_in_ms
+
+    async def _solve_problem_priority_queue(
+        self,
+        problem: SolverProblem,
+        demands: list[int],
+        selected_node_indices: list[int],
+        courier: Courier,
+    ) -> tuple[tuple[SolverRoute, float], tuple[SolverRoute, float]]:
+        solver_queue: asyncio.PriorityQueue[tuple[int, str, GreedySolver | TabuSearchSolver]] = asyncio.PriorityQueue()
+        await solver_queue.put((0, "tabu_search", TabuSearchSolver()))
+        await solver_queue.put((1, "greedy", GreedySolver()))
+
+        results: dict[str, tuple[SolverRoute, float]] = {}
+
+        async def queue_worker() -> None:
+            while True:
+                try:
+                    _, algorithm, solver = solver_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    return
+
+                try:
+                    results[algorithm] = await asyncio.to_thread(
+                        self._solve_problem,
+                        solver,
+                        problem,
+                        demands,
+                        selected_node_indices,
+                        courier,
+                    )
+                finally:
+                    solver_queue.task_done()
+
+        workers = [asyncio.create_task(queue_worker()) for _ in range(2)]
+        await solver_queue.join()
+        await asyncio.gather(*workers)
+
+        tabu_result = results.get("tabu_search")
+        greedy_result = results.get("greedy")
+
+        if tabu_result is None or greedy_result is None:
+            raise Exception(f"Solver comparison did not complete for courier {courier.id}.")
+
+        return tabu_result, greedy_result
 
     def _build_route_points(self, route_nodes: list[int], node_map: dict[int, Node]) -> list[str]:
         route_points: list[str] = []

@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from app.lib.db import Base
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
@@ -27,7 +27,6 @@ class RouteLegCongestionCheckIncident(Base):
         nullable=True,
         index=True,
     )
-    tomtom_incident_id: Mapped[str] = mapped_column(String, nullable=True)
     delay_in_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     overlap_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     rejected_reasons: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)  # JSON array of reasons why this incident was rejected, e.g. ["not_in_bbox", "direction_mismatch", "insufficient_overlap", etc.]

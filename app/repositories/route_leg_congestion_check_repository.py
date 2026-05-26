@@ -51,7 +51,6 @@ class RouteLegCongestionCheckRepository:
             row = RouteLegCongestionCheckIncident(
                 congestion_check_id=congestion_check_id,
                 traffic_incident_id=incident_row.get("traffic_incident_id"),
-                tomtom_incident_id=incident_row["tomtom_incident_id"],
                 delay_in_seconds=incident_row["delay_in_seconds"],
                 overlap_ratio=incident_row["overlap_ratio"],
                 rejected_reasons=list(incident_row.get("rejected_reasons", [])),

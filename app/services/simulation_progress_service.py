@@ -471,7 +471,6 @@ class SimulationProgressService:
             proximity_threshold_m = cast(int, incident_match_debug["proximity_threshold_m"])
             row: CongestionCheckIncidentRow = {
                 "traffic_incident_id": stored_incident.id if stored_incident is not None else None,
-                "tomtom_incident_id": tomtom_incident_id,
                 "delay_in_seconds": int(incident["properties"]["delay"]),
                 "overlap_ratio": overlap_ratio,
                 "rejected_reasons": rejected_reasons,

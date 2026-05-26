@@ -67,10 +67,6 @@ class OrToolsSolverStrategy(BaseSolverStrategy):
         routing: pywrapcp.RoutingModel,
         problem: SolverProblem,
     ) -> None:
-        def demand_callback(from_index: int) -> int:
-            from_node = manager.IndexToNode(from_index)
-            return problem.demands[from_node]
-
         def time_callback(from_index: int, to_index: int) -> int:
             from_node = manager.IndexToNode(from_index)
             to_node = manager.IndexToNode(to_index)

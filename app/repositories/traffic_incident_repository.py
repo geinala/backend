@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
 
 from app.models.traffic_incident import TrafficIncident
 from app.services.tomtom_service import IncidentFeature
@@ -55,20 +56,30 @@ class TrafficIncidentRepository:
             "incident_description": "; ".join(event_descriptions) if event_descriptions else None,
         }
 
-        existing_incident = (
-            self.db.query(TrafficIncident)
-            .filter(TrafficIncident.tomtom_incident_id == tomtom_incident_id)
-            .first()
+        insert_stmt = (
+            insert(TrafficIncident)
+            .values(**payload)
+            .on_conflict_do_nothing(index_elements=[TrafficIncident.tomtom_incident_id])
+            .returning(TrafficIncident.id)
         )
 
-        if existing_incident is None:
-            traffic_incident = TrafficIncident(**payload)
-            self.db.add(traffic_incident)
+        inserted_incident_id = self.db.execute(insert_stmt).scalar_one_or_none()
+
+        if inserted_incident_id is not None:
+            traffic_incident = (
+                self.db.query(TrafficIncident)
+                .filter(TrafficIncident.id == int(inserted_incident_id))
+                .first()
+            )
         else:
-            traffic_incident = existing_incident
-            for field_name, field_value in payload.items():
-                if field_value is not None:
-                    setattr(traffic_incident, field_name, field_value)
+            traffic_incident = (
+                self.db.query(TrafficIncident)
+                .filter(TrafficIncident.tomtom_incident_id == tomtom_incident_id)
+                .first()
+            )
+
+        if traffic_incident is None:
+            raise RuntimeError(f"Failed to persist traffic incident {tomtom_incident_id}.")
 
         self.db.flush()
         self.db.refresh(traffic_incident)

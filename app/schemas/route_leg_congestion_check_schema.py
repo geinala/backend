@@ -3,7 +3,6 @@ from typing import TypedDict
 
 class CongestionCheckIncidentRow(TypedDict):
     traffic_incident_id: int | None
-    tomtom_incident_id: str
     delay_in_seconds: int
     overlap_ratio: float | None
     rejected_reasons: list[str]
