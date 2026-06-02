@@ -48,6 +48,7 @@ class DataValidationService:
                 return
             
             field_names, rows = FileService.parse_csv_bytes(bytes(dataset))
+            rows = self._deduplicate_rows_by_nosi(rows)
             
             await self.simulation_job_repository.update_simulation_job(
                 simulation_job_id=simulation_job_id,
@@ -423,6 +424,26 @@ class DataValidationService:
         }
 
         return REQUIRED_FIELDS - set(fieldnames or [])
+
+    @staticmethod
+    def _deduplicate_rows_by_nosi(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+        unique_rows: list[dict[str, str]] = []
+        seen_nosi: set[str] = set()
+
+        for row in rows:
+            nosi = (row.get("Nosi") or "").strip()
+
+            if not nosi:
+                unique_rows.append(row)
+                continue
+
+            if nosi in seen_nosi:
+                continue
+
+            seen_nosi.add(nosi)
+            unique_rows.append(row)
+
+        return unique_rows
 
     def _validate_required(
         self,

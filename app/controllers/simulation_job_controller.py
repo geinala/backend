@@ -78,7 +78,7 @@ class SimulationJobController:
         try:
             job = enqueue_job(
                 process_geocoding,
-                job_type=JobType.HEAVY,
+                job_type=JobType.LIGHT,
                 job_prefix=JOB_PREFIXES_ENUM.SIMULATION_JOB_REVALIDATION,
                 simulation_job_id=simulation_job_id,
                 resolution_status="manual_override",
