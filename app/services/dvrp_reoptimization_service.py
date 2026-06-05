@@ -65,9 +65,9 @@ class DVRPReoptimizationService:
         courier_id: int,
         current_sequence: int,
         delay_seconds: int,
-        traffic_incident_id: int | None = None,
         congestion_check_id: int | None = None,
         force_duration_update_only: bool = False,
+        is_baseline: bool,
     ) -> dict[str, Any]:
         snapshot = self.route_repository.get_courier_route_snapshot(courier_route_id)
         if snapshot is None:
@@ -143,7 +143,7 @@ class DVRPReoptimizationService:
 
         self.route_repository.update_route_leg_delay(route_leg_id, delay_seconds)
 
-        if force_duration_update_only or not remaining_node_indices:
+        if force_duration_update_only or not remaining_node_indices or is_baseline:
             # Threshold-gated or no remaining nodes: propagate delay without running solvers.
             self.route_repository.shift_route_legs_after_sequence(courier_route_id, current_sequence + 1, delay_seconds)
             final_optimization_run = self._store_no_solver_run(
@@ -153,7 +153,8 @@ class DVRPReoptimizationService:
                 before_total_time_in_seconds=baseline_total_time_in_seconds,
                 after_total_distance_in_meters=baseline_total_distance_in_meters,
                 after_total_time_in_seconds=baseline_with_delay_total_time_in_seconds,
-                courier_id=courier_id
+                courier_id=courier_id,
+                is_baseline=is_baseline,
             )
             logger.info(
                 {
@@ -165,8 +166,8 @@ class DVRPReoptimizationService:
                     "current_sequence": current_sequence,
                     "decision": "duration_updated",
                     "reason": (
-                        "delay_below_resequence_threshold"
-                        if force_duration_update_only
+                        "baseline_route_monitoring_only" if is_baseline
+                        else "delay_below_resequence_threshold" if force_duration_update_only
                         else "no_remaining_nodes_to_resequence"
                     ),
                     "baseline_total_time_in_seconds": baseline_total_time_in_seconds,
@@ -196,6 +197,7 @@ class DVRPReoptimizationService:
                 after_total_time_in_seconds=baseline_with_delay_total_time_in_seconds,
                 before_computation_time_in_ms=0.0,
                 optimization_run_id=final_optimization_run.id,
+                is_baseline=is_baseline,
             )
 
         time_matrix = await self.matrix_service.build_time_matrix(simulation_id)
@@ -344,7 +346,8 @@ class DVRPReoptimizationService:
         logger.info(f"Should resequence: {route_resequenced} (time improved: {time_improved}, sequence changed: {sequence_changed})")
 
         if route_resequenced:
-            await self.route_repository.update_route_legs_after_sequence(courier_route_id, current_sequence)
+            is_initial_route = snapshot["route_version"] == 1
+            await self.route_repository.update_route_legs_after_sequence(courier_route_id, current_sequence, is_initial_route=is_initial_route)
             
             origin_route_index = route_node_indices.index(origin_node.matrix_index)
             visited_node_indices = route_node_indices[:origin_route_index]
@@ -394,9 +397,6 @@ class DVRPReoptimizationService:
             final_outcome = ReoptimizationOutcomeEnum.resequence_applied
             final_decision = "resequence_applied"
         elif time_improved and not sequence_changed:
-            # Candidate is faster but the node order is identical - TomTom returned a
-            # lower travel time purely because of the shifted departure window.
-            # Accept the updated time estimate without rewriting route legs.
             self.route_repository.shift_route_legs_after_sequence(courier_route_id, current_sequence + 1, delay_seconds)
             final_after_total_distance_in_meters = baseline_total_distance_in_meters
             final_after_total_time_in_seconds = int(final_candidate["estimated_total_time_in_seconds"])
@@ -508,6 +508,7 @@ class DVRPReoptimizationService:
             after_total_distance_in_meters=final_after_total_distance_in_meters,
             after_total_time_in_seconds=final_after_total_time_in_seconds,
             before_computation_time_in_ms=float(final_candidate["computation_time_in_ms"]),
+            is_baseline=is_baseline,
         )
 
     async def _finalize_reoptimization(
@@ -529,6 +530,7 @@ class DVRPReoptimizationService:
         after_total_distance_in_meters: int,
         after_total_time_in_seconds: int,
         before_computation_time_in_ms: float,
+        is_baseline: bool = False,
     ) -> dict[str, Any]:
         simulation = self.simulation_repository.db.query(Simulation).filter_by(id=simulation_id).first()
         if simulation is None:
@@ -538,8 +540,10 @@ class DVRPReoptimizationService:
         if current_route is None:
             raise ValueError(f"Courier route {courier_route_id} could not be loaded.")
 
-        current_route.total_distance_in_meters = after_total_distance_in_meters
-        current_route.total_time_in_seconds = after_total_time_in_seconds
+        # Baseline route must remain immutable — it is the comparison baseline.
+        if not is_baseline:
+            current_route.total_distance_in_meters = after_total_distance_in_meters
+            current_route.total_time_in_seconds = after_total_time_in_seconds
 
         courier_position_payload = self._build_courier_position_payload(
             courier_id=courier_id,
@@ -570,17 +574,20 @@ class DVRPReoptimizationService:
             )
         )
 
-        await self.simulation_repository.update_simulation_fields(
-            simulation_id,
-            {
+        _sim_update_fields: dict[str, Any] = {
+            "total_incidents_affecting_routes": int(getattr(simulation, "total_incidents_affecting_routes", 0) or 0) + 1,
+        }
+        # Baseline incidents only propagate delay — they do not alter the "after"
+        # totals that belong to the active (reoptimized) route tracking.
+        if not is_baseline:
+            _sim_update_fields.update({
                 "final_total_distance_in_meters": after_total_distance_in_meters,
                 "final_total_duration_in_seconds": after_total_time_in_seconds,
                 "distance_improvement_in_meters": int(getattr(simulation, "initial_total_distance_in_meters", 0) or 0) - after_total_distance_in_meters,
                 "duration_improvement_in_seconds": int(getattr(simulation, "initial_total_duration_in_seconds", 0) or 0) - after_total_time_in_seconds,
                 "total_reoptimized_routes": int(getattr(simulation, "total_reoptimized_routes", 0) or 0) + 1,
-                "total_incidents_affecting_routes": int(getattr(simulation, "total_incidents_affecting_routes", 0) or 0) + 1,
-            },
-        )
+            })
+        await self.simulation_repository.update_simulation_fields(simulation_id, _sim_update_fields)
 
         await SimulationLogRepository(self.route_repository.db).create_log(
             CreateSimulationLog(
@@ -657,20 +664,19 @@ class DVRPReoptimizationService:
         before_total_time_in_seconds: int,
         after_total_distance_in_meters: int,
         after_total_time_in_seconds: int,
+        is_baseline: bool,
     ) -> Any:
-        """Insert a single optimization_run when no solver was executed.
-
-        This covers the edge-case where there are no remaining delivery nodes
-        and we only need to propagate the delay — no greedy/tabu comparison is
-        possible or meaningful.
-        """
         from uuid import UUID
+
+        run_type_val = "baseline_tracking" if is_baseline else "duration_update"
+        triggered_time = datetime.now(timezone.utc)
 
         created_runs = self.optimization_run_repository.bulk_insert_optimization_runs(
             [
+                # Record 1: Greedy
                 CreateOptimizationRun(
                     simulation_id=UUID(simulation_id),
-                    run_type="reoptimization",
+                    run_type=run_type_val,
                     algorithm="greedy",
                     trigger_type="traffic_incident",
                     total_distance_in_meters=after_total_distance_in_meters,
@@ -680,7 +686,23 @@ class DVRPReoptimizationService:
                     congestion_check_id=congestion_check_id,
                     before_total_distance_in_meters=before_total_distance_in_meters,
                     before_total_travel_time_in_seconds=before_total_time_in_seconds,
-                    triggered_at=datetime.now(timezone.utc),
+                    triggered_at=triggered_time,
+                    courier_id=courier_id
+                ),
+                # Record 2: Tabu Search
+                CreateOptimizationRun(
+                    simulation_id=UUID(simulation_id),
+                    run_type=run_type_val,
+                    algorithm="tabu_search",
+                    trigger_type="traffic_incident",
+                    total_distance_in_meters=after_total_distance_in_meters,
+                    total_travel_time_in_seconds=after_total_time_in_seconds,
+                    computation_time_in_ms=0.0,
+                    total_nodes_explored=0,
+                    congestion_check_id=congestion_check_id,
+                    before_total_distance_in_meters=before_total_distance_in_meters,
+                    before_total_travel_time_in_seconds=before_total_time_in_seconds,
+                    triggered_at=triggered_time,
                     courier_id=courier_id
                 )
             ]

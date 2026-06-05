@@ -79,7 +79,7 @@ class SimulationProgressService:
             current_job: Job | None = get_current_job()
 
             for arrival in due_arrivals:
-                updated = self.route_repository.mark_route_leg_as_visited(arrival["route_leg_id"])
+                updated = self.route_repository.mark_route_leg_as_visited(arrival["route_leg_id"], arrival["is_baseline"])
                 if not updated:
                     continue
 
@@ -93,6 +93,7 @@ class SimulationProgressService:
                 has_next_leg = self.route_repository.promote_next_route_leg_to_in_progress(
                     courier_route_id=arrival["courier_route_id"],
                     current_sequence=arrival["sequence"],
+                    is_baseline=arrival["is_baseline"],
                 )
 
                 next_route_leg = None
@@ -358,6 +359,7 @@ class SimulationProgressService:
                 delay_seconds=aggregated_delay,
                 traffic_incident_id=traffic_incident_db_id,
                 force_duration_update_only=force_duration_update_only,
+                is_baseline=arrival["is_baseline"],
             )
         else:
             logger.info(

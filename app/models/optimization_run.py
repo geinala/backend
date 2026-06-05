@@ -20,7 +20,7 @@ class OptimizationRun(Base):
     congestion_check_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     courier_id: Mapped[int] = mapped_column(Integer, ForeignKey("couriers.id"), nullable=False)
     run_type: Mapped[str] = mapped_column(String, nullable=False)
-    algorithm: Mapped[str] = mapped_column(String, nullable=False)
+    algorithm: Mapped[str] = mapped_column(String, nullable=True)
     trigger_type: Mapped[str] = mapped_column(String, nullable=False)
     total_distance_in_meters: Mapped[int] = mapped_column(Integer, nullable=False)
     total_travel_time_in_seconds: Mapped[int] = mapped_column(Integer, nullable=False)

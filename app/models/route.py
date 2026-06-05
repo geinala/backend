@@ -7,6 +7,9 @@ from datetime import datetime
 
 
 class RouteStatusEnum(enum.Enum):
+    baseline_planned = "baseline_planned"
+    baseline_running = "baseline_running"
+    baseline_completed = "baseline_completed"
     planned = "planned"
     running = "running"
     completed = "completed"

@@ -29,6 +29,7 @@ async def _process_congestion_reoptimization(
     traffic_incident_id: int | None = None,
     congestion_check_id: int | None = None,
     force_duration_update_only: bool = False,
+    is_baseline: bool = False,
 ):
     job = get_current_job()
     start_time = time.time()
@@ -70,8 +71,8 @@ async def _process_congestion_reoptimization(
             courier_id=courier_id,
             current_sequence=current_sequence,
             delay_seconds=delay_seconds,
-            traffic_incident_id=traffic_incident_id,
             force_duration_update_only=force_duration_update_only,
+            is_baseline=is_baseline,
         )
 
         db.commit()
@@ -103,6 +104,7 @@ def process_congestion_reoptimization(
     traffic_incident_id: int | None = None,
     congestion_check_id: int | None = None,
     force_duration_update_only: bool = False,
+    is_baseline: bool = False,
 ):
     return asyncio.run(
         _process_congestion_reoptimization(
@@ -115,5 +117,6 @@ def process_congestion_reoptimization(
             traffic_incident_id=traffic_incident_id,
             congestion_check_id=congestion_check_id,
             force_duration_update_only=force_duration_update_only,
+            is_baseline=is_baseline,
         )
     )
