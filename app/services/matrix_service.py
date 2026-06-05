@@ -235,6 +235,24 @@ class MatrixService:
         self._cache_time_matrix(simulation_id, time_matrix)
 
         return time_matrix
+    
+    async def build_remaining_time_matrix(self, simulation_id: str, courier_id: int) -> list[list[int]]:
+        results = self.matrix_repository.get_matrix_results_by_simulation_id(simulation_id)
+
+        nodes = self._get_remaining_nodes(simulation_id, courier_id)
+        num_nodes = len(nodes)
+
+        time_matrix = [[0] * num_nodes for _ in range(num_nodes)]
+
+        for result in results:
+            origin = result.origin_index
+            destination = result.destination_index
+            if origin < num_nodes and destination < num_nodes:
+                time_matrix[origin][destination] = result.travel_time_in_seconds
+
+        logger.info(f"Built remaining {num_nodes}x{num_nodes} time matrix for simulation {simulation_id} from {len(results)} results")
+
+        return time_matrix
 
     def _get_cached_time_matrix(self, simulation_id: str) -> list[list[int]] | None:
         try:
@@ -310,6 +328,9 @@ class MatrixService:
     def _get_all_nodes(self, simulation_id: str):
         return self.node_repository.get_nodes_by_simulation_id(simulation_id)
     
+    def _get_remaining_nodes(self, simulation_id: str, courier_id: int):
+        return self.node_repository.get_remaining_nodes_by_simulation_id_and_courier_id(simulation_id, courier_id)
+
     def _split_nodes_by_matrix(self, nodes: list[Node], matrix_size: int = 50) -> list[tuple[list[Node], list[Node]]]:
         chunks = [nodes[i:i + matrix_size] for i in range(0, len(nodes), matrix_size)]
 

@@ -30,6 +30,7 @@ class OptimizationService:
             func: str | Callable[..., Any],
             prefix: str | None,
             depends_on: Job | list[Job] | None,
+            job_timeout: int | None = None,
         ) -> Job:
             return enqueue_job(
                 func,
@@ -37,6 +38,7 @@ class OptimizationService:
                 job_prefix=prefix,
                 depends_on=depends_on,
                 simulation_id=simulation_id,
+                job_timeout=job_timeout,
             )
 
         def add_log(
@@ -94,7 +96,7 @@ class OptimizationService:
             depends_on=last_job,
         )
 
-        last_job = add_job(get_solution, JOB_PREFIXES_ENUM.GET_OPTIMIZATION_RESULT, last_job)
+        last_job = add_job(get_solution, JOB_PREFIXES_ENUM.GET_OPTIMIZATION_RESULT, last_job, job_timeout=3600)
 
         add_log(
             OPTIMIZATION_COMPLETED,
@@ -110,7 +112,7 @@ class OptimizationService:
             depends_on=last_job,
         )
 
-        last_job = add_job(generate_routes, JOB_PREFIXES_ENUM.ROUTE_GENERATION, last_job)
+        last_job = add_job(generate_routes, JOB_PREFIXES_ENUM.ROUTE_GENERATION, last_job, job_timeout=3600)
 
         add_log(
             INITIAL_ROUTE_GENERATED,

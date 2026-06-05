@@ -167,6 +167,7 @@ class RouteService:
                         total_nodes_explored=route_build["nodes_explored"],
                         congestion_check_id=None,
                         triggered_at=triggered_at,
+                        courier_id=route_build["courier"].id,
                     ),
                     CreateOptimizationRun(
                         simulation_id=route_build["solution"].simulation_id,
@@ -181,6 +182,7 @@ class RouteService:
                         before_total_distance_in_meters=route_build["greedy_summary"]["lengthInMeters"],
                         before_total_travel_time_in_seconds=route_build["greedy_summary"]["travelTimeInSeconds"],
                         triggered_at=triggered_at,
+                        courier_id=route_build["courier"].id,
                     ),
                 ]
             )

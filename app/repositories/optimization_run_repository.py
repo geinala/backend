@@ -23,6 +23,7 @@ class OptimizationRunRepository:
                 congestion_check_id=optimization_run.congestion_check_id,
                 before_total_distance_in_meters=optimization_run.before_total_distance_in_meters,
                 before_total_travel_time_in_seconds=optimization_run.before_total_travel_time_in_seconds,
+                courier_id=optimization_run.courier_id,
             )
             for optimization_run in optimization_runs
         ]

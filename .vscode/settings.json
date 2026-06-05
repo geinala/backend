@@ -1,5 +1,6 @@
 {
     "python.analysis.diagnosticSeverityOverrides": {
         "reportMissingTypeStubs": "none"
-    }
+    },
+    "terminal.integrated.fontSize": 15
 }

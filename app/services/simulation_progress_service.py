@@ -26,6 +26,7 @@ from app.repositories.simulation_repository import SimulationRepository
 from app.repositories.traffic_incident_repository import TrafficIncidentRepository
 from app.repositories.route_leg_congestion_check_repository import RouteLegCongestionCheckRepository
 from app.schemas.route_leg_congestion_check_schema import CongestionCheckIncidentRow
+from app.services.matrix_service import MatrixService
 from app.services.tomtom_service import IncidentFeature, TomTomService
 from app.workers import dvrp_reoptimization_worker_process_congestion
 from app.workers.events_worker import (
@@ -47,7 +48,7 @@ class SimulationProgressService:
         optimization_run_repository: OptimizationRunRepository,
         simulation_repository: SimulationRepository,
         traffic_incident_repository: TrafficIncidentRepository,
-        matrix_service: object,
+        matrix_service: MatrixService,
         tomtom_service: TomTomService,
     ):
         self.route_repository = route_repository
@@ -262,6 +263,11 @@ class SimulationProgressService:
         if selected_traffic_incident_id is not None:
             accepted_incident_id = selected_traffic_incident_id
 
+        force_duration_update_only = (
+            congestion_detected
+            and aggregated_delay <= settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS
+        )
+
         congestion_check = self.route_leg_congestion_check_repository.store_congestion_check(
             simulation_id=arrival["simulation_id"],
             route_leg_id=next_route_leg["route_leg_id"],
@@ -311,6 +317,8 @@ class SimulationProgressService:
                     "accepted_incident_db_ids": accepted_incident_ids,
                     "detected_at": detection_time.isoformat(),
                     "total_delay_in_seconds": aggregated_delay,
+                    "force_duration_update_only": force_duration_update_only,
+                    "resequence_threshold_seconds": settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS,
                 }
             )
 
@@ -332,6 +340,7 @@ class SimulationProgressService:
                     "chosen_tomtom_id": selected_tomtom_incident_id,
                     "chosen_db_id": accepted_incident_id,
                     "total_delay_in_seconds": aggregated_delay,
+                    "force_duration_update_only": force_duration_update_only,
                 },
             )
 
@@ -348,6 +357,7 @@ class SimulationProgressService:
                 current_sequence=next_route_leg["sequence"],
                 delay_seconds=aggregated_delay,
                 traffic_incident_id=traffic_incident_db_id,
+                force_duration_update_only=force_duration_update_only,
             )
         else:
             logger.info(

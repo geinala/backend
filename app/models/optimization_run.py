@@ -7,6 +7,7 @@ from sqlalchemy import UUID, Integer, String, ForeignKey, DateTime, Float, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.lib.db import Base
+from app.models.courier import Courier
 
 if TYPE_CHECKING:
     from app.models.simulation import Simulation
@@ -17,6 +18,7 @@ class OptimizationRun(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     simulation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("simulations.id"), nullable=False)
     congestion_check_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    courier_id: Mapped[int] = mapped_column(Integer, ForeignKey("couriers.id"), nullable=False)
     run_type: Mapped[str] = mapped_column(String, nullable=False)
     algorithm: Mapped[str] = mapped_column(String, nullable=False)
     trigger_type: Mapped[str] = mapped_column(String, nullable=False)
@@ -30,4 +32,4 @@ class OptimizationRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     simulation: Mapped["Simulation"] = relationship("Simulation")
-    
+    courier: Mapped["Courier"] = relationship("Courier")

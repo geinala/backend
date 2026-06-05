@@ -43,6 +43,7 @@ class JobService:
         *args: Any,
         depends_on: Optional[Job | list[Job]] = None,
         delay: Optional[timedelta] = None,
+        job_timeout: int | None = None,
         **kwargs: Any
     ) -> Job:
         with wide_event(
@@ -65,6 +66,7 @@ class JobService:
                     *args,
                     job_id=custom_job_id,
                     depends_on=depends_on,
+                    job_timeout=job_timeout,
                     **kwargs,
                 )
             else:
@@ -73,6 +75,7 @@ class JobService:
                     *args,
                     job_id=custom_job_id,
                     depends_on=depends_on,
+                    job_timeout=job_timeout,
                     **kwargs,
                 )
             
@@ -88,6 +91,7 @@ def enqueue_job(
     *args: Any,
     depends_on: Optional[Job | list[Job]] = None,
     delay: Optional[timedelta] = None,
+    job_timeout: int | None = None,
     **kwargs: Any
 ) -> Job:
     return JobService.enqueue_job(
@@ -97,6 +101,7 @@ def enqueue_job(
         *args,
         depends_on=depends_on,
         delay=delay,
+        job_timeout=job_timeout,
         **kwargs,
     )
 

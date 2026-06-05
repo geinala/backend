@@ -145,15 +145,8 @@ class RouteRepository:
             .all()
         )
 
-    def delete_route_legs_after_sequence(self, courier_route_id: int, sequence: int) -> int:
-        deleted_rows = (
-            self.db.query(RouteLeg)
-            .filter(RouteLeg.courier_route_id == courier_route_id)
-            .filter(RouteLeg.sequence > sequence)
-            .delete(synchronize_session=False)
-        )
-
-        return int(deleted_rows or 0)
+    async def update_route_legs_after_sequence(self, courier_route_id: int, sequence: int):  
+        self.db.query(RouteLeg).filter(RouteLeg.courier_route_id == courier_route_id).filter(RouteLeg.sequence > sequence).update({RouteLeg.route_status: RouteStatusEnum.cancelled}, synchronize_session=False)
 
     def shift_route_legs_after_sequence(self, courier_route_id: int, sequence: int, delay_seconds: int) -> int:
         route_legs = (

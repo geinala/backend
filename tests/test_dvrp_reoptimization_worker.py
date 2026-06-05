@@ -27,6 +27,7 @@ def test_process_congestion_reoptimization_wraps_async_implementation(monkeypatc
         delay_seconds=120,
         traffic_incident_id=7,
         congestion_check_id=8,
+        force_duration_update_only=True,
     )
 
     assert result == {"status": "success"}
@@ -40,4 +41,5 @@ def test_process_congestion_reoptimization_wraps_async_implementation(monkeypatc
         "delay_seconds": 120,
         "traffic_incident_id": 7,
         "congestion_check_id": 8,
+        "force_duration_update_only": True,
     }

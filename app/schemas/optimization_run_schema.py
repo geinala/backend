@@ -6,7 +6,8 @@ from pydantic import BaseModel
 
 class CreateOptimizationRun(BaseModel):
     simulation_id: uuid.UUID
-    run_type: Literal["initial", "reoptimization"]
+    run_type: Literal["initial", "reoptimization", "reoptimization_candidate"]
+    courier_id: int
     algorithm: Literal["greedy", "tabu_search"]
     trigger_type: str # e.g., "initial", "periodic", "traffic_update", etc.
     total_distance_in_meters: int

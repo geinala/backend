@@ -70,41 +70,11 @@ class OrToolsSolverStrategy(BaseSolverStrategy):
         def time_callback(from_index: int, to_index: int) -> int:
             from_node = manager.IndexToNode(from_index)
             to_node = manager.IndexToNode(to_index)
-
-            time_travel = problem.time_matrix[from_node][to_node]
-            service_time = 300
-
-            return time_travel + service_time
+            return problem.time_matrix[from_node][to_node]
 
         transit_callback_index = routing.RegisterTransitCallback(time_callback)
         routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
 
-        routing.AddDimension(
-            transit_callback_index,
-            0,
-            28800,
-            True,
-            "Time",
-        )
-
-        time_dimension = routing.GetDimensionOrDie("Time")
-
-        for vehicle_id in range(routing.vehicles()):
-            start_index = routing.Start(vehicle_id)
-            end_index = routing.End(vehicle_id)
-
-            time_dimension.CumulVar(start_index).SetRange(0, 0)
-            time_dimension.CumulVar(end_index).SetRange(0, 28800)
-
-        time_dimension.SetGlobalSpanCostCoefficient(10)
-
-        for vehicle_id in range(routing.vehicles()):
-            end_index = routing.End(vehicle_id)
-            time_dimension.SetCumulVarSoftUpperBound(
-                end_index,
-                25200,
-                1000,
-            )
 
 def build_greedy_solver() -> OrToolsSolverStrategy:
     return OrToolsSolverStrategy(

@@ -78,3 +78,10 @@ class NodeRepository:
         ).filter(
             Node.simulation_id == simulation_id
         ).order_by(Node.matrix_index.asc()).all()
+        
+    def get_remaining_nodes_by_simulation_id_and_courier_id(self, simulation_id: str, courier_id: int) -> list[Node]:
+        return self.db.query(Node).filter(
+            Node.simulation_id == simulation_id,
+            Node.courier_id == courier_id,
+            Node.is_completed == False
+        ).all()

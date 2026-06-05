@@ -140,7 +140,7 @@ class DataCleaningService:
 
             cleaned_rows: list[dict[str, object]] = []
             total_rows = len(uploaded_rows)
-            progress_update_interval = max(1, total_rows // 20)  # ~5% granularity
+            progress_update_interval = max(1, total_rows // 20)
 
             for index, row in enumerate(uploaded_rows, start=1):
                 prepared = self._prepare_row_for_cleaning(
