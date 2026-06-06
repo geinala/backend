@@ -34,7 +34,7 @@ class ReoptimizationEvent(Base):
     distance_saved_in_meters: Mapped[int] = mapped_column(Integer, nullable=False)  # Jarak yang berhasil dihemat dari reoptimasi ini
     time_saved_in_seconds: Mapped[int] = mapped_column(Integer, nullable=False)  # Waktu yang berhasil dihemat dari reoptimasi ini
     courier_position: Mapped[str] = mapped_column(String, nullable=False)  # Posisi kurir saat reoptimasi dipicu, format JSON array: [{"courier_id": number, "lat": number, "lng": number, "bearing": number}]
-    algorithm_used: Mapped[str] = mapped_column(String, nullable=False)  # Algoritma yang digunakan untuk reoptimasi ini
+    algorithm_used: Mapped[str] = mapped_column(String, nullable=True)  # Algoritma yang digunakan untuk reoptimasi ini
     computation_time_in_ms: Mapped[float] = mapped_column(Float, nullable=False)  # Waktu yang dibutuhkan untuk melakukan reoptimasi ini
     total_incident_delay_in_seconds: Mapped[int] = mapped_column(Integer, nullable=True)  # Total delay yang disebabkan oleh insiden yang memicu reoptimasi ini, jika ada
     outcome: Mapped[str] = mapped_column(String, nullable=True)  # Hasil dari reoptimasi ini, misalnya "resequence", "duration_updated", "failed", dll.

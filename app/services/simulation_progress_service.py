@@ -1,3 +1,4 @@
+import json
 import time
 import re
 from datetime import datetime, timezone
@@ -74,6 +75,8 @@ class SimulationProgressService:
 
         try:
             due_arrivals = self.route_repository.get_due_arrival_events_for_running_simulations(reference_time)
+            
+            logger.info(f"Due arrivals fetched: {json.dumps(due_arrivals, default=str)}")
 
             transitioned_arrivals: list[tuple[DueArrivalEvent, bool]] = []
             current_job: Job | None = get_current_job()
@@ -83,7 +86,7 @@ class SimulationProgressService:
                 if not updated:
                     continue
 
-                if arrival["node_id"] >= 0:
+                if arrival["node_id"] >= 0 and not arrival["is_baseline"]:
                     self.node_repository.mark_node_as_completed(
                         node_id=arrival["node_id"],
                         courier_id=arrival["courier_id"],
@@ -109,12 +112,16 @@ class SimulationProgressService:
                 self.simulation_repository.apply_arrival_progress(
                     simulation_id=arrival["simulation_id"],
                     has_next_leg=has_next_leg,
+                    is_baseline=arrival["is_baseline"],
                 )
                 transitioned_arrivals.append((arrival, has_next_leg))
 
             emitted_count = 0
             for arrival, has_next_leg in transitioned_arrivals:
                 if arrival["node_id"] < 0:
+                    continue
+                
+                if arrival.get("is_baseline", False):
                     continue
 
                 emit_vehicle_arrived_event(
@@ -300,7 +307,6 @@ class SimulationProgressService:
                 ),
                 None,
             )
-            traffic_incident_db_id = accepted_incident_id
 
             logger.info(
                 {
@@ -357,7 +363,6 @@ class SimulationProgressService:
                 courier_id=arrival["courier_id"],
                 current_sequence=next_route_leg["sequence"],
                 delay_seconds=aggregated_delay,
-                traffic_incident_id=traffic_incident_db_id,
                 force_duration_update_only=force_duration_update_only,
                 is_baseline=arrival["is_baseline"],
             )

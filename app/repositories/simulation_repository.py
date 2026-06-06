@@ -50,15 +50,16 @@ class SimulationRepository:
         self.db.refresh(simulation)
         return simulation
 
-    def apply_arrival_progress(self, simulation_id: str, has_next_leg: bool) -> Simulation | None:
+    def apply_arrival_progress(self, simulation_id: str, has_next_leg: bool, is_baseline: bool = False) -> Simulation | None:
         simulation = self.db.query(Simulation).filter(Simulation.id == simulation_id).first()
         if not simulation:
             return None
 
-        simulation.total_completed_nodes += 1
+        if not is_baseline:
+            simulation.total_completed_nodes += 1
 
-        if not has_next_leg:
-            simulation.total_active_couriers = max(simulation.total_active_couriers - 1, 0)
+            if not has_next_leg:
+                simulation.total_active_couriers = max(simulation.total_active_couriers - 1, 0)
 
         if simulation.total_active_couriers == 0:
             simulation.status = SimulationStatusEnum.completed

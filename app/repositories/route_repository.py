@@ -170,6 +170,8 @@ class RouteRepository:
                 RouteLeg.route_status.in_([
                     RouteStatusEnum.running,
                     RouteStatusEnum.planned,
+                    RouteStatusEnum.baseline_planned,
+                    RouteStatusEnum.baseline_running,
                 ])
             )
             .order_by(RouteLeg.sequence.asc())
@@ -300,23 +302,28 @@ class RouteRepository:
         ]
 
     def mark_route_leg_as_visited(self, route_leg_id: int, is_baseline: bool) -> bool:
-        route_leg = self.db.query(RouteLeg).filter(RouteLeg.id == route_leg_id).first()
+        expected_status = RouteStatusEnum.baseline_running if is_baseline else RouteStatusEnum.running
+        new_status = RouteStatusEnum.baseline_completed if is_baseline else RouteStatusEnum.completed
 
-        if route_leg is None:
-            return False
+        updated_count = self.db.query(RouteLeg).filter(
+            RouteLeg.id == route_leg_id,
+            RouteLeg.route_status == expected_status
+        ).update(
+            {RouteLeg.route_status: new_status},
+            synchronize_session=False
+        )
 
-        route_leg.route_status = RouteStatusEnum.baseline_completed if is_baseline else RouteStatusEnum.completed
-        return True
+        return updated_count > 0
 
     def promote_next_route_leg_to_in_progress(self, courier_route_id: int, current_sequence: int, is_baseline: bool = False) -> bool:
-        planned_status = RouteStatusEnum.baseline_planned if is_baseline else RouteStatusEnum.planned
         running_status = RouteStatusEnum.baseline_running if is_baseline else RouteStatusEnum.running
+        target_status = RouteStatusEnum.baseline_planned if is_baseline else RouteStatusEnum.planned
 
         next_leg = (
             self.db.query(RouteLeg)
             .filter(RouteLeg.courier_route_id == courier_route_id)
             .filter(RouteLeg.sequence > current_sequence)
-            .filter(RouteLeg.route_status == planned_status)
+            .filter(RouteLeg.route_status == target_status)
             .order_by(RouteLeg.sequence.asc())
             .first()
         )
@@ -326,6 +333,17 @@ class RouteRepository:
 
         next_leg.route_status = running_status
         return True
+    
+    def transition_current_route_leg_for_reoptimization(self, route_leg_id: int, is_initial_route: bool) -> None:
+        next_status = (
+            RouteStatusEnum.baseline_running
+            if is_initial_route
+            else RouteStatusEnum.cancelled
+        )
+        self.db.query(RouteLeg).filter(RouteLeg.id == route_leg_id).update(
+            {RouteLeg.route_status: next_status},
+            synchronize_session=False
+        )
 
     def get_next_route_leg_after_sequence(
         self,
@@ -336,7 +354,7 @@ class RouteRepository:
             self.db.query(RouteLeg)
             .filter(RouteLeg.courier_route_id == courier_route_id)
             .filter(RouteLeg.sequence > current_sequence)
-            .filter(RouteLeg.route_status.in_([RouteStatusEnum.planned, RouteStatusEnum.running]))
+            .filter(RouteLeg.route_status.in_([RouteStatusEnum.baseline_planned, RouteStatusEnum.baseline_running, RouteStatusEnum.planned, RouteStatusEnum.running]))
             .order_by(RouteLeg.sequence.asc())
             .first()
         )

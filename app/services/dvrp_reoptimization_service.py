@@ -91,7 +91,7 @@ class DVRPReoptimizationService:
                 f"Destination matrix index {destination_node.matrix_index} is missing from courier route {courier_route_id}."
             )
 
-        destination_route_index = route_node_indices.index(destination_node.matrix_index)
+        destination_route_index = current_sequence
         remaining_node_indices = route_node_indices[destination_route_index + 1 : -1]
 
         old_future_legs = self.route_repository.get_route_legs_by_courier_route_id(courier_route_id)
@@ -143,8 +143,8 @@ class DVRPReoptimizationService:
 
         self.route_repository.update_route_leg_delay(route_leg_id, delay_seconds)
 
+        logger.info(f"Processing reoptimization for baseline: {is_baseline}")
         if force_duration_update_only or not remaining_node_indices or is_baseline:
-            # Threshold-gated or no remaining nodes: propagate delay without running solvers.
             self.route_repository.shift_route_legs_after_sequence(courier_route_id, current_sequence + 1, delay_seconds)
             final_optimization_run = self._store_no_solver_run(
                 simulation_id=simulation_id,
@@ -189,7 +189,7 @@ class DVRPReoptimizationService:
                 delay_seconds=delay_seconds,
                 congestion_check_id=congestion_check_id,
                 route_leg_id=route_leg_id,
-                algorithm_used="none",
+                algorithm_used=final_optimization_run.algorithm,
                 outcome=ReoptimizationOutcomeEnum.duration_updated,
                 before_total_distance_in_meters=baseline_total_distance_in_meters,
                 before_total_time_in_seconds=baseline_total_time_in_seconds,
@@ -306,7 +306,7 @@ class DVRPReoptimizationService:
             greedy_candidate=greedy_candidate,
             tabu_candidate=tabu_candidate,
         )
-        final_candidate = min(candidate_plans, key=lambda candidate: int(candidate["estimated_total_time_in_seconds"]))
+        final_candidate = candidate_plans[1]
         
         # Two conditions must both hold before we commit a full resequence:
         #   (1) The candidate is genuinely faster than the baseline + delay.
@@ -345,11 +345,15 @@ class DVRPReoptimizationService:
         logger.info(f"Environment: {self.settings.ENVIRONMENT}")
         logger.info(f"Should resequence: {route_resequenced} (time improved: {time_improved}, sequence changed: {sequence_changed})")
 
+        final_new_courier_route_id: int | None = None
+
         if route_resequenced:
             is_initial_route = snapshot["route_version"] == 1
             await self.route_repository.update_route_legs_after_sequence(courier_route_id, current_sequence, is_initial_route=is_initial_route)
             
-            origin_route_index = route_node_indices.index(origin_node.matrix_index)
+            self.route_repository.transition_current_route_leg_for_reoptimization(current_route_leg.id, is_initial_route=is_initial_route)
+            
+            origin_route_index = current_sequence - 1
             visited_node_indices = route_node_indices[:origin_route_index]
             
             full_route_nodes = visited_node_indices + list(final_candidate["route"])
@@ -381,6 +385,29 @@ class DVRPReoptimizationService:
                 )
             )
             
+            duplicate_running_leg = CreateRouteLeg(
+                courier_route_id=newest_courier_route.id,
+                from_node_id=current_route_leg.from_node_id,
+                to_node_id=current_route_leg.to_node_id,
+                origin_latitude=float(current_route_leg.origin_latitude),
+                origin_longitude=float(current_route_leg.origin_longitude),
+                destination_latitude=float(current_route_leg.destination_latitude),
+                destination_longitude=float(current_route_leg.destination_longitude),
+                sequence=current_sequence,
+                encoded_polyline=current_route_leg.encoded_polyline,
+                encoded_polyline_precision=current_route_leg.encoded_polyline_precision,
+                distance_in_meters=current_route_leg.distance_in_meters,
+                travel_time_in_seconds=current_route_leg.travel_time_in_seconds,
+                traffic_delay_in_seconds=current_route_leg.traffic_delay_in_seconds,
+                departure_time=current_route_leg.departure_time,
+                arrival_time=current_route_leg.arrival_time,
+                no_traffic_travel_time_in_seconds=current_route_leg.no_traffic_travel_time_in_seconds,
+                historic_traffic_travel_time_in_seconds=current_route_leg.historic_traffic_travel_time_in_seconds,
+                live_traffic_incidents_travel_time_in_seconds=current_route_leg.live_traffic_incidents_travel_time_in_seconds,
+                route_status=RouteStatusEnum.running,
+                traffic_distance_in_meters=current_route_leg.traffic_distance_in_meters,
+            )
+            
             reoptimized_route_legs = self._build_reoptimized_route_legs(
                 courier_route_id=newest_courier_route.id,
                 current_sequence=current_sequence,
@@ -390,12 +417,13 @@ class DVRPReoptimizationService:
             )
 
             if reoptimized_route_legs:
-                self.route_repository.bulk_insert_route_legs(reoptimized_route_legs)
+                self.route_repository.bulk_insert_route_legs([duplicate_running_leg] + reoptimized_route_legs)
 
             final_after_total_distance_in_meters = int(final_candidate["estimated_total_distance_in_meters"])
             final_after_total_time_in_seconds = int(final_candidate["estimated_total_time_in_seconds"])
             final_outcome = ReoptimizationOutcomeEnum.resequence_applied
             final_decision = "resequence_applied"
+            final_new_courier_route_id = newest_courier_route.id
         elif time_improved and not sequence_changed:
             self.route_repository.shift_route_legs_after_sequence(courier_route_id, current_sequence + 1, delay_seconds)
             final_after_total_distance_in_meters = baseline_total_distance_in_meters
@@ -509,8 +537,9 @@ class DVRPReoptimizationService:
             after_total_time_in_seconds=final_after_total_time_in_seconds,
             before_computation_time_in_ms=float(final_candidate["computation_time_in_ms"]),
             is_baseline=is_baseline,
+            after_route_id=final_new_courier_route_id,
         )
-
+        
     async def _finalize_reoptimization(
         self,
         *,
@@ -523,7 +552,7 @@ class DVRPReoptimizationService:
         congestion_check_id: int | None,
         route_leg_id: int,
         optimization_run_id: int,
-        algorithm_used: Literal["greedy", "tabu_search", "none"],
+        algorithm_used: Literal["greedy", "tabu_search"] | None,
         outcome: ReoptimizationOutcomeEnum,
         before_total_distance_in_meters: int,
         before_total_time_in_seconds: int,
@@ -531,6 +560,7 @@ class DVRPReoptimizationService:
         after_total_time_in_seconds: int,
         before_computation_time_in_ms: float,
         is_baseline: bool = False,
+        after_route_id: int | None = None,
     ) -> dict[str, Any]:
         simulation = self.simulation_repository.db.query(Simulation).filter_by(id=simulation_id).first()
         if simulation is None:
@@ -540,10 +570,8 @@ class DVRPReoptimizationService:
         if current_route is None:
             raise ValueError(f"Courier route {courier_route_id} could not be loaded.")
 
-        # Baseline route must remain immutable — it is the comparison baseline.
-        if not is_baseline:
-            current_route.total_distance_in_meters = after_total_distance_in_meters
-            current_route.total_time_in_seconds = after_total_time_in_seconds
+        current_route.total_distance_in_meters = after_total_distance_in_meters
+        current_route.total_time_in_seconds = after_total_time_in_seconds
 
         courier_position_payload = self._build_courier_position_payload(
             courier_id=courier_id,
@@ -560,7 +588,7 @@ class DVRPReoptimizationService:
                 before_route_id=courier_route_id,
                 before_total_distance_in_meters=before_total_distance_in_meters,
                 before_total_time_in_seconds=before_total_time_in_seconds,
-                after_route_id=courier_route_id,
+                after_route_id=after_route_id or courier_route_id,
                 after_total_distance_in_meters=after_total_distance_in_meters,
                 after_total_time_in_seconds=after_total_time_in_seconds,
                 courier_position=courier_position_payload,
@@ -708,7 +736,7 @@ class DVRPReoptimizationService:
             ]
         )
 
-        return created_runs[0]
+        return created_runs
 
     def _store_final_reoptimization_run(
         self,
