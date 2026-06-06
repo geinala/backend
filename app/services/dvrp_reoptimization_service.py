@@ -29,6 +29,7 @@ from app.schemas.solution_schema import CreateSolution
 from app.services.matrix_service import MatrixService
 from app.services.solver import GreedySolver, SolverProblem, TabuSearchSolver
 from app.services.tomtom_service import TomTomService
+from app.models.node import Node
 
 
 logger = get_logger(__name__)
@@ -84,14 +85,27 @@ class DVRPReoptimizationService:
         destination_node = node_by_id.get(current_route_leg.to_node_id)
         if destination_node is None:
             raise ValueError(f"Destination node {current_route_leg.to_node_id} could not be loaded.")
+        
+        origin_node = node_by_id.get(current_route_leg.from_node_id)
+        if origin_node is None:
+            raise ValueError(f"Origin node {current_route_leg.from_node_id} could not be loaded.")
 
         route_node_indices = list(snapshot["routes"])
+        
         if destination_node.matrix_index not in route_node_indices:
             raise ValueError(
                 f"Destination matrix index {destination_node.matrix_index} is missing from courier route {courier_route_id}."
             )
 
-        destination_route_index = current_sequence
+        destination_route_index = -1
+        for i in range(len(route_node_indices) - 1):
+            if route_node_indices[i] == origin_node.matrix_index and route_node_indices[i+1] == destination_node.matrix_index:
+                destination_route_index = i + 1
+                break
+            
+        if destination_route_index == -1:
+            destination_route_index = route_node_indices.index(destination_node.matrix_index)
+        
         remaining_node_indices = route_node_indices[destination_route_index + 1 : -1]
 
         old_future_legs = self.route_repository.get_route_legs_by_courier_route_id(courier_route_id)
@@ -105,11 +119,14 @@ class DVRPReoptimizationService:
         baseline_total_time_in_seconds = int(snapshot["total_time_in_seconds"])
         baseline_with_delay_total_time_in_seconds = baseline_total_time_in_seconds + delay_seconds
 
-        # Resolve origin node of the congested leg early — needed both for logging
-        # and for Big-M matrix construction later.
-        origin_node = node_by_id.get(current_route_leg.from_node_id)
-        if origin_node is None:
-            raise ValueError(f"Origin node {current_route_leg.from_node_id} could not be loaded.")
+        logger.info({
+            "event_type": "DEBUG_ROUTE_ORIGINAL",
+            "courier_route_id": courier_route_id,
+            "route_version": snapshot["route_version"],
+            "route_node_indices": route_node_indices,
+            "origin_node_matrix_index": origin_node.matrix_index if origin_node else None,
+            "current_sequence": current_sequence
+        })
 
         logger.info(
             {
@@ -200,28 +217,31 @@ class DVRPReoptimizationService:
                 is_baseline=is_baseline,
             )
 
-        time_matrix = await self.matrix_service.build_time_matrix(simulation_id)
-        selected_node_indices = [origin_node.matrix_index, *remaining_node_indices, 0]
+        reoptimization_departure_time = current_route_leg.arrival_time + timedelta(seconds=delay_seconds)
 
-        # Apply Big-M penalty only when both endpoints are inside selected_node_indices
-        # (i.e. the congested edge is still part of the subgraph to be optimised).
-        # Using integer 999_999 — OR-Tools requires int, not float('inf').
-        congested_origin_matrix_index = origin_node.matrix_index
-        congested_destination_matrix_index = destination_node.matrix_index
-        big_m_penalty_applied = (
-            congested_origin_matrix_index
-            and congested_origin_matrix_index in selected_node_indices
-            and congested_destination_matrix_index in selected_node_indices
+        selected_node_indices = [
+            origin_node.matrix_index,
+            destination_node.matrix_index,
+            *remaining_node_indices,
+            0,
+        ]
+        
+        selected_nodes: list[Node] = []
+        for matrix_idx in selected_node_indices:
+            node = node_by_matrix_index.get(matrix_idx)
+            if node is None:
+                raise ValueError(f"Node dengan matrix index {matrix_idx} tidak ditemukan.")
+            selected_nodes.append(node)
+
+        logger.info(f"Generating live submatrix from TomTom for {len(selected_nodes)} nodes...")
+        submatrix = await self.matrix_service.generate_live_submatrix_for_reoptimization(
+            nodes=selected_nodes,
+            departure_time=reoptimization_departure_time
         )
-        submatrix = self._build_submatrix(
-            time_matrix,
-            selected_node_indices,
-            congested_origin_index=congested_origin_matrix_index if big_m_penalty_applied else None,
-            congested_destination_index=congested_destination_matrix_index if big_m_penalty_applied else None,
-        )
+        
         logger.info(
             {
-                "event_type": "submatrix_built_for_reoptimization",
+                "event_type": "live_submatrix_built_for_reoptimization",
                 "submatrix": json.dumps(submatrix),
             }
         )
@@ -291,6 +311,7 @@ class DVRPReoptimizationService:
             ),
         ]
 
+        # Persist both candidate runs for post-hoc algorithm comparison analytics.
         self._store_reoptimization_comparison_runs(
             simulation_id=simulation_id,
             courier_id=courier_id,
@@ -301,28 +322,28 @@ class DVRPReoptimizationService:
             tabu_candidate=tabu_candidate,
         )
         final_candidate = candidate_plans[1]
-        
+
         time_improved = int(final_candidate["estimated_total_time_in_seconds"]) < baseline_with_delay_total_time_in_seconds
-        original_comparison_sequence = [origin_node.matrix_index, *remaining_node_indices]
+        original_comparison_sequence = [origin_node.matrix_index, destination_node.matrix_index, *remaining_node_indices]
         sequence_changed = self._is_sequence_changed(
             original_node_indices=original_comparison_sequence,
             candidate_route=list(final_candidate["route"]),
             depot_matrix_index=0,
         )
-        
+
         logger.info(
             "Sequence comparison -> original=%s candidate=%s changed=%s",
             original_comparison_sequence,
             [n for n in final_candidate["route"] if n != 0],
             sequence_changed,
         )
-        
+
         route_resequenced = (
             sequence_changed
             if self.settings.ENVIRONMENT == "development"
             else (time_improved and sequence_changed)
         )
-        
+
         logger.info(
             "Resequence decision -> env=%s should_resequence=%s "
             "(time_improved=%s sequence_changed=%s)",
@@ -339,14 +360,32 @@ class DVRPReoptimizationService:
         if route_resequenced:
             is_initial_route = snapshot["route_version"] == 1
             await self.route_repository.update_route_legs_after_sequence(courier_route_id, current_sequence, is_initial_route=is_initial_route)
-            
+
             self.route_repository.transition_current_route_leg_for_reoptimization(current_route_leg.id, is_initial_route=is_initial_route)
-            
-            origin_route_index = current_sequence - 1
-            visited_node_indices = route_node_indices[:origin_route_index]
-            
+
+            logger.info({
+                "event_type": "DEBUG_ARRAY_SLICING",
+                "current_sequence": current_sequence,
+                "slice_index_calculated": current_sequence - 1,
+                "route_node_indices_before_slice": route_node_indices,
+                "solver_candidate_route": list(final_candidate["route"])
+            })
+
+            visited_node_indices = route_node_indices[:destination_route_index - 1]
+
             full_route_nodes = visited_node_indices + list(final_candidate["route"])
-            
+
+            logger.info(
+                {
+                    "event_type": "full_route_nodes_reconstructed",
+                    "simulation_id": simulation_id,
+                    "courier_route_id": courier_route_id,
+                    "visited_node_indices": visited_node_indices,
+                    "candidate_route": list(final_candidate["route"]),
+                    "full_route_nodes": full_route_nodes,
+                }
+            )
+
             newest_solution = await self.solution_repository.insert_solution(
                 solution_data=CreateSolution(
                     simulation_id=simulation_id,
@@ -356,9 +395,9 @@ class DVRPReoptimizationService:
                     time_in_seconds=int(final_candidate["estimated_total_time_in_seconds"]),
                 )
             )
-            
+
             await self.courier_route_repository.deactivate_courier_route(courier_route_id)
-            
+
             newest_courier_route = await self.courier_route_repository.insert_courier_route(
                 courier_route=CreateCourierRoute(
                     solution_id=newest_solution.id,
@@ -373,7 +412,7 @@ class DVRPReoptimizationService:
                     triggered_by_traffic=True
                 )
             )
-            
+
             duplicate_running_leg = CreateRouteLeg(
                 courier_route_id=newest_courier_route.id,
                 from_node_id=current_route_leg.from_node_id,
@@ -396,7 +435,7 @@ class DVRPReoptimizationService:
                 route_status=RouteStatusEnum.running,
                 traffic_distance_in_meters=current_route_leg.traffic_distance_in_meters,
             )
-            
+
             reoptimized_route_legs = self._build_reoptimized_route_legs(
                 courier_route_id=newest_courier_route.id,
                 current_sequence=current_sequence,
@@ -451,7 +490,6 @@ class DVRPReoptimizationService:
                 "old_future_time_in_seconds": old_future_time_in_seconds,
                 "baseline_total_time_in_seconds": baseline_total_time_in_seconds,
                 "baseline_with_delay_total_time_in_seconds": baseline_with_delay_total_time_in_seconds,
-                "big_m_penalty_applied": big_m_penalty_applied,
                 "greedy_candidate": {
                     "algorithm": greedy_candidate["algorithm"],
                     "distance_in_meters": int(greedy_candidate["summary"]["lengthInMeters"]),
@@ -518,7 +556,7 @@ class DVRPReoptimizationService:
             congestion_check_id=congestion_check_id,
             route_leg_id=route_leg_id,
             optimization_run_id=final_optimization_run.id,
-            algorithm_used=final_candidate["algorithm"], # type: ignore
+            algorithm_used=final_candidate["algorithm"],  # type: ignore
             outcome=final_outcome,
             before_total_distance_in_meters=baseline_total_distance_in_meters,
             before_total_time_in_seconds=baseline_total_time_in_seconds,
@@ -528,7 +566,7 @@ class DVRPReoptimizationService:
             is_baseline=is_baseline,
             after_route_id=final_new_courier_route_id,
         )
-        
+
     async def _finalize_reoptimization(
         self,
         *,

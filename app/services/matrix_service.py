@@ -1,5 +1,7 @@
 import json
 from typing import TypedDict, cast
+
+import asyncio
 from app.configs.redis_configuration import get_redis_client
 from app.models.matrix import MatrixBatch, MatrixBatchStatusEnum
 from app.repositories.matrix_repository import MatrixRepository
@@ -11,6 +13,7 @@ from app.services.tomtom_service import STATE_ENUM, MatrixResponse, RouteSummary
 from app.schemas.matrix_schema import CreateMatrixBatchData, CreateMatrixResultData, UpdateMatrixBatchStatusData
 from datetime import datetime, timedelta, timezone
 from app.lib.logging.logging import get_logger
+from app.lib.date_converter import format_departure_time
 from app.services.job_service import enqueue_job
 from app.constants.job_prefixes import JOB_PREFIXES_ENUM, JobType
 
@@ -24,10 +27,14 @@ class Point(TypedDict):
 
 class LocationPayload(TypedDict):
     point: Point
-
+    
+class MatrixJobInfo(TypedDict):
+    job_id: str
+    o_indices: list[int]
+    d_indices: list[int]
 
 class MatrixService:
-    MATRIX_SUBMISSION_DELAY = timedelta(seconds=60)
+    MATRIX_SUBMISSION_DELAY = timedelta(seconds=10)
     MATRIX_CACHE_KEY_PREFIX = "simulation:matrix-time-matrix:"
 
     def __init__(self, node_repository: NodeRepository, tomtom_service: TomTomService, matrix_repository: MatrixRepository, simulation_repository: SimulationRepository):
@@ -37,6 +44,12 @@ class MatrixService:
         self.simulation_repository = simulation_repository
 
     async def submit_tomtom_matrix_requests(self, simulation_id: str, start_pair_index: int = 0):
+        simulation = await self.simulation_repository.get_simulation_by_id(simulation_id)
+        
+        if not simulation:
+            logger.error(f"Simulation with ID {simulation_id} not found when submitting TomTom matrix requests")
+            raise ValueError(f"Simulation with ID {simulation_id} not found")
+        
         existing_batches = self.matrix_repository.get_batches_by_simulation_id(simulation_id)
         if start_pair_index == 0 and existing_batches:
             logger.info(f"Matrix batches already exist for simulation {simulation_id}, skipping submission")
@@ -48,7 +61,7 @@ class MatrixService:
         
         # TomTom API has a limit of 2500 elements per matrix
         # but to be safe and avoid hitting limits
-        # we will use a smaller batch size of 50 nodes per matrix.
+        # we will use a smaller batch size of 30 nodes per matrix.
         matrix_size = 30 if len(nodes) > 30 else len(nodes)
 
         node_pairs = self._split_nodes_by_matrix(nodes, matrix_size)
@@ -69,7 +82,12 @@ class MatrixService:
         )
 
         logger.info(f"Submitting matrix at {datetime.now(timezone.utc)} for simulation {simulation_id} with node indices {origins[0].id} to {origins[-1].id}")
-        response = self.tomtom_service.submit_matrix(origin_locations, destination_locations)
+        logger.info(f"Submitting matrix at {datetime.now(timezone.utc)} for simulation {simulation_id} with node indices {destinations[0].id} to {destinations[-1].id}")
+        logger.info(f"Submitting matrix with departure time {format_departure_time(simulation.started_at)} for simulation {simulation_id}")
+        departure_time = format_departure_time(
+            simulation.started_at
+        )
+        response = self.tomtom_service.submit_matrix(origin_locations, destination_locations, departure_time=departure_time)
 
         batch_data = CreateMatrixBatchData(
             simulation_id=simulation_id,
@@ -236,21 +254,86 @@ class MatrixService:
 
         return time_matrix
     
-    async def build_remaining_time_matrix(self, simulation_id: str, courier_id: int) -> list[list[int]]:
-        results = self.matrix_repository.get_matrix_results_by_simulation_id(simulation_id)
-
-        nodes = self._get_remaining_nodes(simulation_id, courier_id)
+    async def generate_live_submatrix_for_reoptimization(
+        self,
+        nodes: list[Node],
+        departure_time: datetime
+    ) -> list[list[int]]:
         num_nodes = len(nodes)
+        matrix_size = 30 if num_nodes > 30 else num_nodes
+
+        chunk_indices = [
+            list(range(i, min(i + matrix_size, num_nodes))) 
+            for i in range(0, num_nodes, matrix_size)
+        ]
+        
+        job_ids: list[MatrixJobInfo] = []
+        for o_indices in chunk_indices:
+            for d_indices in chunk_indices:
+                origin_locations = [self._node_to_location_payload(nodes[i]) for i in o_indices]
+                destination_locations = [self._node_to_location_payload(nodes[i]) for i in d_indices]
+
+                logger.info(
+                    f"Submitting live matrix batch (Origins: {len(origin_locations)}, "
+                    f"Destinations: {len(destination_locations)}) at {format_departure_time(departure_time)} for reoptimization"
+                )
+
+                response = self.tomtom_service.submit_matrix(
+                    origins=origin_locations,
+                    destinations=destination_locations,
+                    departure_time=format_departure_time(departure_time)
+                )
+                
+                job_id = response.get("jobId")
+                if not job_id:
+                    raise ValueError("Gagal mendapatkan jobId dari TomTom saat live matrix generation.")
+
+                job_ids.append({
+                    "job_id": job_id,
+                    "o_indices": o_indices,
+                    "d_indices": d_indices
+                })
+
+        logger.info(f"Total {len(job_ids)} batch(es) disubmit ke TomTom. Memulai polling...")
 
         time_matrix = [[0] * num_nodes for _ in range(num_nodes)]
+        pending_jobs = list(job_ids)
+        max_retries = 30
 
-        for result in results:
-            origin = result.origin_index
-            destination = result.destination_index
-            if origin < num_nodes and destination < num_nodes:
-                time_matrix[origin][destination] = result.travel_time_in_seconds
+        for _ in range(max_retries):
+            if not pending_jobs:
+                break
 
-        logger.info(f"Built remaining {num_nodes}x{num_nodes} time matrix for simulation {simulation_id} from {len(results)} results")
+            await asyncio.sleep(2)
+
+            still_pending: list[MatrixJobInfo] = []
+            for job_info in pending_jobs:
+                job_id = job_info["job_id"]
+                status_response = self.tomtom_service.get_matrix_status(job_id)
+                state = status_response.get("state")
+
+                if state == STATE_ENUM.Completed.value:
+                    matrix_result = self.tomtom_service.get_matrix_result(job_id)
+                    
+                    for result in matrix_result.get("data", []):
+                        local_o_idx = result.get("originIndex")
+                        local_d_idx = result.get("destinationIndex")
+                        summary = result.get("routeSummary", {})
+                        
+                        global_o_idx = job_info["o_indices"][local_o_idx]
+                        global_d_idx = job_info["d_indices"][local_d_idx]
+                        
+                        time_matrix[global_o_idx][global_d_idx] = summary.get("travelTimeInSeconds", 0)
+
+                elif state == STATE_ENUM.Failed.value:
+                    raise RuntimeError(f"Live matrix generation failed di TomTom untuk job {job_id}")
+                else:
+                    still_pending.append(job_info)
+
+            pending_jobs = still_pending
+
+        if pending_jobs:
+            raise TimeoutError("Polling live matrix generation dari TomTom timeout.")
 
         return time_matrix
 

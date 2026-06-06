@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import requests
 from typing import List, TypedDict
 from app.configs.environment_configuration import get_environment_configuration
@@ -26,7 +28,7 @@ class LocationPayload(TypedDict):
 class MatrixPayload(TypedDict):
     origins: List[LocationPayload]
     destinations: List[LocationPayload]
-    options: dict[str, bool | str | int | list[str] | float]
+    options: dict[str, bool | str | int | list[str] | float | None]
     
 class Statistics(TypedDict):
     totalCount: int
@@ -204,7 +206,7 @@ class TomTomService:
             response = self.session.get(
                 f"{self.BASE_URL}/traffic/services/5/incidentDetails",
                 params=params,
-                timeout=30,
+                timeout=60,
             )
             
             response.raise_for_status()
@@ -249,7 +251,7 @@ class TomTomService:
             response = self.session.get(
                 f"{self.BASE_URL}/routing/1/calculateRoute/{routes}/json",
                 params=params,
-                timeout=30,
+                timeout=60,
             )
             
             response.raise_for_status()
@@ -262,14 +264,18 @@ class TomTomService:
     def submit_matrix(
         self,
         origins: list[LocationPayload],
-        destinations: list[LocationPayload]
+        destinations: list[LocationPayload],
+        departure_time: str | None = None
     ) -> TomTomSubmitedMatrixResponse:
+        now = datetime.now(timezone.utc)
+        traffic_type = "historical" if departure_time and datetime.fromisoformat(departure_time) < now else "live"
+        
         payload: MatrixPayload = {
             "origins": origins,
             "destinations": destinations,
             "options": {
                 "routeType": "fastest",
-                "traffic": "historical",
+                "traffic": traffic_type,
                 "travelMode": "car",
                 "vehicleMaxSpeed": 60,
                 "vehicleWeight": 120,
@@ -279,6 +285,7 @@ class TomTomService:
                 "vehicleHeight": 1.2,
                 "vehicleCommercial": False,
                 "avoid": ["tollRoads", "unpavedRoads"],
+                "departAt": departure_time
             },
         }
         
@@ -289,7 +296,7 @@ class TomTomService:
                 f"{self.BASE_URL}/routing/matrix/2/async",
                 json=payload,
                 params=PARAMS,
-                timeout=30,
+                timeout=60,
             )
             
             response.raise_for_status()
@@ -307,7 +314,7 @@ class TomTomService:
         PARAMS = {"key": self.matrix_api_key}
 
         try:
-            response = self.session.get(URL, params=PARAMS, timeout=30)
+            response = self.session.get(URL, params=PARAMS, timeout=60)
             response.raise_for_status()
             return response.json()
 
@@ -319,7 +326,7 @@ class TomTomService:
         PARAMS = {"key": self.matrix_api_key}
 
         try:
-            response = self.session.get(URL, params=PARAMS, timeout=30)
+            response = self.session.get(URL, params=PARAMS, timeout=60)
             response.raise_for_status()
             return response.json()
 
@@ -342,7 +349,7 @@ class TomTomService:
         }
         
         try:
-            response = self.session.get(URL, params=params, timeout=30)
+            response = self.session.get(URL, params=params, timeout=60)
             response.raise_for_status()
             return response.json()
 
