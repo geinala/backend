@@ -736,7 +736,7 @@ class DVRPReoptimizationService:
             ]
         )
 
-        return created_runs
+        return created_runs[0]
 
     def _store_final_reoptimization_run(
         self,
