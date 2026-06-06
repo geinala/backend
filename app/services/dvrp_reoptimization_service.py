@@ -201,12 +201,7 @@ class DVRPReoptimizationService:
             )
 
         time_matrix = await self.matrix_service.build_time_matrix(simulation_id)
-        selected_node_indices = [
-            origin_node.matrix_index, 
-            destination_node.matrix_index, 
-            *remaining_node_indices, 
-            0
-        ]
+        selected_node_indices = [origin_node.matrix_index, *remaining_node_indices, 0]
 
         # Apply Big-M penalty only when both endpoints are inside selected_node_indices
         # (i.e. the congested edge is still part of the subgraph to be optimised).
@@ -296,7 +291,6 @@ class DVRPReoptimizationService:
             ),
         ]
 
-        # Persist both candidate runs for post-hoc algorithm comparison analytics.
         self._store_reoptimization_comparison_runs(
             simulation_id=simulation_id,
             courier_id=courier_id,
@@ -308,13 +302,8 @@ class DVRPReoptimizationService:
         )
         final_candidate = candidate_plans[1]
         
-        # Two conditions must both hold before we commit a full resequence:
-        #   (1) The candidate is genuinely faster than the baseline + delay.
-        #   (2) The solver actually produced a DIFFERENT node order - not just a
-        #       cheaper TomTom response for the same sequence at a shifted departure
-        #       time (false-positive caused by time-of-day traffic variation).
         time_improved = int(final_candidate["estimated_total_time_in_seconds"]) < baseline_with_delay_total_time_in_seconds
-        original_comparison_sequence = [origin_node.matrix_index, destination_node.matrix_index, *remaining_node_indices]
+        original_comparison_sequence = [origin_node.matrix_index, *remaining_node_indices]
         sequence_changed = self._is_sequence_changed(
             original_node_indices=original_comparison_sequence,
             candidate_route=list(final_candidate["route"]),
