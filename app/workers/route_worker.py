@@ -19,7 +19,7 @@ from app.workers.events_worker import emit_route_initialized_event, emit_vehicle
 
 logger = get_logger()
 
-async def generate_routes(simulation_id: str, depart_at: str | None = None):
+async def generate_routes(simulation_id: str):
     job = get_current_job()
     start_time = time.time()
     
@@ -52,7 +52,7 @@ async def generate_routes(simulation_id: str, depart_at: str | None = None):
 
         wide_event["stage"] = "generating_routes"
         
-        arrival_schedules = await route_service.generate_routes(simulation_id, depart_at)
+        arrival_schedules = await route_service.generate_routes(simulation_id)
 
         seen_courier_route_ids: set[int] = set()
         for arrival in arrival_schedules:

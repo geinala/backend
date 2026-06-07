@@ -69,9 +69,6 @@ class OptimizationService:
 
             add_job(generate_matrices, JOB_PREFIXES_ENUM.MATRIX_GENERATION, last_job)
 
-            # Matrix submission now continues in delayed follow-up jobs.
-            # The optimization continuation is triggered after the final batch is submitted
-            # and all matrix results have been processed.
             return
 
         if run_matrix_processing:

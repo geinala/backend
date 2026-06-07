@@ -3,6 +3,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, TypedDict
 
+from app.lib.date_converter import format_departure_time
 from app.models.courier import Courier
 from app.models.node import Node
 from app.models.simulation import SimulationStatusEnum
@@ -62,7 +63,11 @@ class RouteService:
         self.courier_route_repository = courier_route_repository
         self.optimization_run_repository = optimization_run_repository
 
-    async def generate_routes(self, simulation_id: str, depart_at: str | None = None) -> list[CourierArrivalSchedule]:
+    async def generate_routes(self, simulation_id: str) -> list[CourierArrivalSchedule]:
+        simulation = await self.simulation_repository.get_simulation_by_id(simulation_id)
+        if simulation is None:
+            raise Exception(f"Simulation with id {simulation_id} not found.")
+
         solutions = await self.solution_repository.get_solutions_by_simulation_id(simulation_id)
 
         if not solutions:
@@ -111,8 +116,8 @@ class RouteService:
             greedy_routes_plan = ":".join(self._build_route_points(greedy_route.route, node_map))
             tabu_routes_plan = ":".join(self._build_route_points(tabu_route.route, node_map))
 
-            greedy_routes = self.tomtom_service.generate_routes(greedy_routes_plan, depart_at)
-            routes = self.tomtom_service.generate_routes(tabu_routes_plan, depart_at)
+            greedy_routes = self.tomtom_service.generate_routes(greedy_routes_plan, depart_at=format_departure_time(simulation.started_at))
+            routes = self.tomtom_service.generate_routes(tabu_routes_plan, depart_at=format_departure_time(simulation.started_at))
 
             tomtom_responses.append(routes)
 

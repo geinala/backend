@@ -42,8 +42,6 @@ async def generate_matrices(simulation_id: str, start_pair_index: int = 0):
         
         logger.info(wide_event)
         
-        return {"status": "success", "simulation_id": simulation_id}
-        
     except Exception as e:
         wide_event["status"] = "failed"
         wide_event["error"] = str(e)

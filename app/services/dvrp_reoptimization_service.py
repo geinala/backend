@@ -30,6 +30,7 @@ from app.services.matrix_service import MatrixService
 from app.services.solver import GreedySolver, SolverProblem, TabuSearchSolver
 from app.services.tomtom_service import TomTomService
 from app.models.node import Node
+from app.lib.date_converter import format_departure_time
 
 
 logger = get_logger(__name__)
@@ -964,7 +965,7 @@ class DVRPReoptimizationService:
 
         route = self._parse_solver_route(manager, routing, solution, selected_node_indices)
         route_points = ":".join(self._build_route_points(route, node_by_matrix_index))
-        route_response = self.tomtom_service.generate_routes(route_points, current_departure_time.isoformat())
+        route_response = self.tomtom_service.generate_routes(route_points, depart_at=format_departure_time(current_departure_time))
         summary = route_response["routes"][0]["summary"]
 
         return {
