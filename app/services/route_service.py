@@ -16,6 +16,7 @@ from app.schemas.optimization_run_schema import CreateOptimizationRun
 from app.schemas.route_schema import CreateRouteLeg
 from app.repositories.route_repository import RouteRepository
 from app.repositories.courier_repository import CourierRepository
+from app.schemas.simulation_schema import UpdateSimulationSchema
 from app.services.tomtom_service import TomTomRouteResultResponse, TomTomService
 from app.repositories.solution_repository import SolutionRepository
 from app.repositories.node_repository import NodeRepository
@@ -258,15 +259,15 @@ class RouteService:
 
         self.route_repository.bulk_insert_route_legs(route_legs)
 
-        await self.simulation_repository.update_simulation_fields(
+        await self.simulation_repository.update_simulation(
             simulation_id,
-            {
-                "initial_total_distance_in_meters": sum(route.total_distance_in_meters for route in courier_routes),
-                "initial_total_duration_in_seconds": sum(route.total_time_in_seconds for route in courier_routes),
-                "total_nodes": len(nodes),
-                "total_couriers": len(courier_routes),
-                "total_active_couriers": sum(1 for route in courier_routes if route.is_active),
-            },
+            UpdateSimulationSchema(
+                initial_total_distance_in_meters=sum(route.total_distance_in_meters for route in courier_routes),
+                initial_total_duration_in_seconds=sum(route.total_time_in_seconds for route in courier_routes),
+                total_nodes=len(nodes),
+                total_couriers=len(courier_routes),
+                total_active_couriers=sum(1 for route in courier_routes if route.is_active),
+            )
         )
         
         await self.simulation_repository.update_simulation_status(simulation_id, SimulationStatusEnum.running)

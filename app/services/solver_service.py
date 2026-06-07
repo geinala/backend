@@ -10,6 +10,7 @@ from app.repositories.node_repository import NodeRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.repositories.solution_repository import SolutionRepository
 from app.repositories.courier_repository import CourierRepository
+from app.schemas.simulation_schema import UpdateSimulationSchema
 from app.schemas.solution_schema import CreateSolution
 from app.services.matrix_service import MatrixService
 from app.services.solver import GreedySolver, Route, SolverProblem, TabuSearchSolver
@@ -81,13 +82,13 @@ class SolverService:
             )
 
         await self.solution_repository.bulk_insert_solutions(solutions)
-        await self.simulation_repository.update_simulation_fields(
+        await self.simulation_repository.update_simulation(
             simulation_id,
-            {
-                "total_demand_in_kilograms": sum(solution.demand_in_kilograms for solution in solutions),
-                "total_couriers": len(solutions),
-                "total_active_couriers": len(solutions),
-            },
+            UpdateSimulationSchema(
+                total_demand_in_kilograms=sum(solution.demand_in_kilograms for solution in solutions),
+                total_couriers=len(solutions),
+                total_active_couriers=len(solutions),
+            )
         )
 
     async def solve_with_tabu_search(self, simulation_id: str):

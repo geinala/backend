@@ -25,6 +25,7 @@ from app.schemas.courier_route_schema import CreateCourierRoute
 from app.schemas.optimization_run_schema import CreateOptimizationRun
 from app.schemas.route_schema import CreateRouteLeg
 from app.schemas.simulation_log_schema import CreateSimulationLog
+from app.schemas.simulation_schema import UpdateSimulationSchema
 from app.schemas.solution_schema import CreateSolution
 from app.services.matrix_service import MatrixService
 from app.services.solver import GreedySolver, SolverProblem, TabuSearchSolver
@@ -643,7 +644,7 @@ class DVRPReoptimizationService:
                 "duration_improvement_in_seconds": int(getattr(simulation, "initial_total_duration_in_seconds", 0) or 0) - after_total_time_in_seconds,
                 "total_reoptimized_routes": int(getattr(simulation, "total_reoptimized_routes", 0) or 0) + 1,
             })
-        await self.simulation_repository.update_simulation_fields(simulation_id, _sim_update_fields)
+        await self.simulation_repository.update_simulation(simulation_id, UpdateSimulationSchema(**_sim_update_fields))
 
         await SimulationLogRepository(self.route_repository.db).create_log(
             CreateSimulationLog(

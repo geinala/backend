@@ -5,6 +5,7 @@ from app.lib.db import get_db
 from app.lib.logging.logging import get_logger
 from app.configs.worker_configuration import JobType
 from app.constants.job_prefixes import JOB_PREFIXES_ENUM
+from app.schemas.simulation_schema import UpdateSimulationSchema
 from app.services.job_service import enqueue_job
 from app.repositories.solution_repository import SolutionRepository
 from app.repositories.simulation_repository import SimulationRepository
@@ -39,13 +40,13 @@ async def finalize_simulation(simulation_id: str):
         total_couriers = len(solutions)
         total_active_couriers = len(solutions)
 
-        await simulation_repo.update_simulation_fields(
+        await simulation_repo.update_simulation(
             simulation_id,
-            {
-                "total_demand_in_kilograms": total_demand,
-                "total_couriers": total_couriers,
-                "total_active_couriers": total_active_couriers,
-            },
+            UpdateSimulationSchema(
+                total_demand_in_kilograms=total_demand,
+                total_couriers=total_couriers,
+                total_active_couriers=total_active_couriers,
+            )
         )
 
         db.commit()

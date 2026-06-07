@@ -1,10 +1,10 @@
 
 from datetime import datetime, timezone
-from typing import Any
 
 from sqlalchemy.orm import Session
 from app.models.simulation import Simulation, SimulationStatusEnum
 from app.lib.logging.logging import get_logger
+from app.schemas.simulation_schema import UpdateSimulationSchema
 
 logger = get_logger(__name__)
 
@@ -37,17 +37,27 @@ class SimulationRepository:
         self.db.refresh(simulation)
         return simulation
 
-    async def update_simulation_fields(self, simulation_id: str, fields: dict[str, Any]) -> Simulation | None:
-        simulation = self.db.query(Simulation).filter(Simulation.id == simulation_id).first()
+    async def update_simulation(self, simulation_id: str, update_data: UpdateSimulationSchema) -> Simulation | None:
+        simulation = (
+            self.db.query(Simulation)
+            .filter(Simulation.id == simulation_id)
+            .first()
+        )
+
         if not simulation:
             return None
 
-        for key, value in fields.items():
-            if hasattr(simulation, key):
-                setattr(simulation, key, value)
+        update_fields = update_data.model_dump(
+            exclude_unset=True,
+            exclude_none=True,
+        )
+
+        for field, value in update_fields.items():
+            setattr(simulation, field, value)
 
         self.db.commit()
         self.db.refresh(simulation)
+
         return simulation
 
     def apply_arrival_progress(self, simulation_id: str, has_next_leg: bool, is_baseline: bool = False) -> Simulation | None:
