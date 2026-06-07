@@ -21,7 +21,6 @@ class UpdateSimulationSchema(BaseModel):
     tabu_iterations: int | None = None
     tabu_tenure: int | None = None
     max_neighbors_2opt: int | None = None
-    max_neighbors_oropt: int | None = None
     diversify_after_iterations: int | None = None
     diversification_strength: int | None = None
     depot_id: int | None = None

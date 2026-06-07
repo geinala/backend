@@ -70,7 +70,6 @@ class SimulationJob(Base):
     tabu_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tabu_tenure: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_neighbors_2opt: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    max_neighbors_oropt: Mapped[int | None] = mapped_column(Integer, nullable=True)
     diversify_after_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
     diversification_strength: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_demand_in_kilograms: Mapped[float] = mapped_column(Float, nullable=False, default=0)

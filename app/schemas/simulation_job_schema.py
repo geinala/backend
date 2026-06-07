@@ -31,7 +31,6 @@ class SimulationJobUpdateData(BaseModel):
     tabu_iterations: int | None = None
     tabu_tenure: int | None = None
     max_neighbors_2opt: int | None = None
-    max_neighbors_oropt: int | None = None
     diversify_after_iterations: int | None = None
     diversification_strength: int | None = None
     total_demand_in_kilograms: float | None = None
