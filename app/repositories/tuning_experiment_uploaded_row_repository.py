@@ -22,10 +22,10 @@ class TuningExperimentUploadedRowRepository:
             self.db.rollback()
             raise
 
-    async def get_uploaded_rows_by_tuning_experiment_id(self, tuning_experiment_id: str) -> list[TuningExperimentUploadedRow]:
+    async def get_uploaded_rows_by_tuning_experiment_dataset_id(self, tuning_experiment_dataset_id: str) -> list[TuningExperimentUploadedRow]:
         return (
             self.db.query(TuningExperimentUploadedRow)
-            .filter(TuningExperimentUploadedRow.tuning_experiment_id == tuning_experiment_id)
+            .filter(TuningExperimentUploadedRow.tuning_experiment_dataset_id == tuning_experiment_dataset_id)
             .order_by(TuningExperimentUploadedRow.id.asc())
             .all()
         )

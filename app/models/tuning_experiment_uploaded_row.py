@@ -10,7 +10,7 @@ class TuningExperimentUploadedRow(Base):
     __tablename__ = 'tuning_experiment_uploaded_rows'
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    tuning_experiment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    tuning_experiment_dataset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     nosi: Mapped[str | None] = mapped_column(String, nullable=True)
     courier: Mapped[str | None] = mapped_column(String, nullable=True)
     customer_name: Mapped[str | None] = mapped_column(String, nullable=True)

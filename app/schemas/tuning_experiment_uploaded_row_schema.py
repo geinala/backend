@@ -25,7 +25,7 @@ class TuningExperimentUploadedRowBaseSchema(BaseModel):
 class CreateTuningExperimentUploadedRowSchema(
     TuningExperimentUploadedRowBaseSchema
 ):
-    tuning_experiment_id: str
+    tuning_experiment_dataset_id: str
     created_at: datetime
 
 

@@ -5,10 +5,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal, TypedDict, cast
 
-from app.repositories.tuning_experiment_repository import TuningExperimentRepository
+from app.models.tuning_experiment_dataset import TuningExperimentDatasetStatusEnum
+from app.repositories.tuning_experiment_dataset_repository import TuningExperimentDatasetRepository
 from app.repositories.tuning_experiment_uploaded_row_repository import TuningExperimentUploadedRowRepository
 from app.lib.logging.logging import get_logger
-from app.schemas.tuning_experiment_schema import TuningExperimentUpdateSchema
 from app.schemas.tuning_experiment_uploaded_row_schema import UpdateTuningExperimentUploadedRowSchema
 
 logger = get_logger(__name__)
@@ -90,32 +90,40 @@ class PreparedAddressResult(TypedDict):
 class TuningExperimentDataCleaningService:
     def __init__(
         self,
-        tuning_experiment_repository: TuningExperimentRepository,
+        tuning_experiment_dataset_repository: TuningExperimentDatasetRepository,
         tuning_experiment_uploaded_row_repository: TuningExperimentUploadedRowRepository
     ):
-        self.tuning_experiment_repository = tuning_experiment_repository
+        self.tuning_experiment_dataset_repository = tuning_experiment_dataset_repository
         self.tuning_experiment_uploaded_row_repository = tuning_experiment_uploaded_row_repository
 
-    async def run(self, tuning_experiment_id: str) -> dict[str, object]:
+    async def run(self, tuning_experiment_dataset_id: str) -> dict[str, object]:
         start_time = time_module.time()
         wide_event: dict[str, object] = {
             "event_type": "tuning_clean_uploaded_rows",
-            "tuning_experiment_id": tuning_experiment_id,
+            "tuning_experiment_dataset_id": tuning_experiment_dataset_id,
             "status": "processing",
         }
 
         try:
-            tuning_experiment = await self.tuning_experiment_repository.get_tuning_experiment_by_id(tuning_experiment_id)
+            dataset = await self.tuning_experiment_dataset_repository.get_tuning_experiment_dataset_by_id_and_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                status=TuningExperimentDatasetStatusEnum.validated
+            )
 
-            if not tuning_experiment:
-                raise ValueError(f"Tuning experiment with ID {tuning_experiment_id} not found.")
+            if not dataset:
+                raise ValueError(f"Tuning experiment dataset with ID {tuning_experiment_dataset_id} not found.")
+            
+            await self.tuning_experiment_dataset_repository.update_tuning_experiment_dataset_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                new_status=TuningExperimentDatasetStatusEnum.cleaning
+            )
 
-            uploaded_rows = await self.tuning_experiment_uploaded_row_repository.get_uploaded_rows_by_tuning_experiment_id(
-                tuning_experiment_id=tuning_experiment_id
+            uploaded_rows = await self.tuning_experiment_uploaded_row_repository.get_uploaded_rows_by_tuning_experiment_dataset_id(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id
             )
 
             if not uploaded_rows:
-                raise ValueError(f"No uploaded rows found for tuning experiment {tuning_experiment_id}. Cannot proceed with cleaning process.")
+                raise ValueError(f"No uploaded rows found for tuning experiment dataset {tuning_experiment_dataset_id}. Cannot proceed with cleaning process.")
 
             cleaned_rows: list[UpdateTuningExperimentUploadedRowSchema] = []
 
@@ -136,20 +144,23 @@ class TuningExperimentDataCleaningService:
 
             await self.tuning_experiment_uploaded_row_repository.update_cleaned_rows(cleaned_rows=cleaned_rows)
 
+            await self.tuning_experiment_dataset_repository.update_tuning_experiment_dataset_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                new_status=TuningExperimentDatasetStatusEnum.cleaned
+            )
+
             wide_event["status"] = "success"
             wide_event["processed_rows"] = len(cleaned_rows)
             wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
             logger.info(wide_event)
 
-            return {"tuning_experiment_id": tuning_experiment_id, "processed_rows": len(cleaned_rows)}
+            return {"tuning_experiment_dataset_id": tuning_experiment_dataset_id, "processed_rows": len(cleaned_rows)}
 
         except Exception as e:
-            await self.tuning_experiment_repository.update_tuning_experiment(
-                tuning_experiment_id=tuning_experiment_id,
-                update_data=TuningExperimentUpdateSchema(
-                    status="failed"
-                    ),
-                )
+            await self.tuning_experiment_dataset_repository.update_tuning_experiment_dataset_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                new_status=TuningExperimentDatasetStatusEnum.failed
+            )
             wide_event["status"] = "failed"
             wide_event["error"] = str(e)
             wide_event["error_type"] = type(e).__name__

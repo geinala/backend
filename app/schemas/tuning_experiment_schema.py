@@ -21,7 +21,6 @@ class TuningExperimentCreateSchema(TuningExperimentBaseSchema):
     pass
 
 class TuningExperimentUpdateSchema(BaseModel):
-    status: str | None = None
     initial_fitness_score: float | None = None
     best_fitness_score: float | None = None
     execution_time_ms: float | None = None

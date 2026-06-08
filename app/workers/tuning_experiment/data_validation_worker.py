@@ -3,17 +3,18 @@ from rq.job import get_current_job
 
 from app.lib.logging.logging import get_logger
 from app.lib.db import get_db
+from app.repositories.tuning_experiment_dataset_repository import TuningExperimentDatasetRepository
 
 logger = get_logger(__name__)
 
-async def process_tuning_experiment_files(tuning_experiment_id: str) -> dict[str, object]:
+async def process_tuning_experiment_files(tuning_experiment_dataset_id: str) -> dict[str, object]:
     job = get_current_job()
     start_time = time.time()
     
     wide_event: dict[str, object] = {
         "event_type": "worker_process_files",
         "job_id": job.id if job else None,
-        "tuning_experiment_id": tuning_experiment_id,
+        "tuning_experiment_dataset_id": tuning_experiment_dataset_id,
         "status": "processing",
     }
     
@@ -29,17 +30,18 @@ async def process_tuning_experiment_files(tuning_experiment_id: str) -> dict[str
         data_validation_service = TuningExperimentDataValidationService(
             minio_service=MinioService(minio_client=minio_client),
             tuning_experiment_repository=TuningExperimentRepository(db),
-            tuning_experiment_uploaded_row_repository=TuningExperimentUploadedRowRepository(db)
+            tuning_experiment_uploaded_row_repository=TuningExperimentUploadedRowRepository(db),
+            tuning_experiment_dataset_repository=TuningExperimentDatasetRepository(db)
         )
         
-        await data_validation_service.run(tuning_experiment_id=tuning_experiment_id)
+        await data_validation_service.run(tuning_experiment_dataset_id=tuning_experiment_dataset_id)
         
         wide_event["status"] = "success"
         wide_event["duration_ms"] = (time.time() - start_time) * 1000
         
         logger.info(wide_event)
         
-        return {"status": "success", "tuning_experiment_id": tuning_experiment_id}
+        return {"status": "success", "tuning_experiment_dataset_id": tuning_experiment_dataset_id}
         
     except Exception as e:
         wide_event["status"] = "failed"

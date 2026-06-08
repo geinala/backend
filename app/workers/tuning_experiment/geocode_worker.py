@@ -8,7 +8,7 @@ from app.services.tuning_experiment.geocode_service import TuningExperimentGeoco
 logger = get_logger(__name__)
 
 async def geocode_tuning_experiment_address(
-    tuning_experiment_id: str,
+    tuning_experiment_dataset_id: str,
 ):
     job = get_current_job()
     start_time = time.time()
@@ -16,25 +16,25 @@ async def geocode_tuning_experiment_address(
     wide_event: dict[str, object] = {
         "event_type": "worker_geocode_process",
         "job_id": job.id if job else None,
-        "tuning_experiment_id": tuning_experiment_id,
+        "tuning_experiment_dataset_id": tuning_experiment_dataset_id,
         "status": "processing",
     }
     
     try:
         from app.services.tomtom_service import TomTomService
         from app.repositories.tuning_experiment_uploaded_row_repository import TuningExperimentUploadedRowRepository
-        from app.repositories.tuning_experiment_repository import TuningExperimentRepository
+        from app.repositories.tuning_experiment_dataset_repository import TuningExperimentDatasetRepository
         
         db_session = get_db()
         db = next(db_session)
         geocode_service = TuningExperimentGeocodeService(
             tomtom_service=TomTomService(),
             tuning_experiment_uploaded_row_repository=TuningExperimentUploadedRowRepository(db),
-            tuning_experiment_repository=TuningExperimentRepository(db)
+            tuning_experiment_dataset_repository=TuningExperimentDatasetRepository(db)
         )
         
         result = await geocode_service.run(
-            tuning_experiment_id=tuning_experiment_id
+            tuning_experiment_dataset_id=tuning_experiment_dataset_id
         )
         
         wide_event["status"] = "success"
@@ -43,7 +43,7 @@ async def geocode_tuning_experiment_address(
 
         logger.info(wide_event)
 
-        return {"status": "success", "tuning_experiment_id": tuning_experiment_id}
+        return {"status": "success", "tuning_experiment_dataset_id": tuning_experiment_dataset_id}
     except Exception as e:
         raise e
     

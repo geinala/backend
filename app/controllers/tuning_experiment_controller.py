@@ -8,16 +8,16 @@ from app.lib.logging.logging import get_logger
 from app.lib.response_formatter import ResponseFormatter
 from app.services.job_service import enqueue_job
 from app.workers.tuning_experiment.data_validation_worker import process_tuning_experiment_files
-from app.workers.pre_processing.workflow_continue_worker import continue_workflow as continue_pre_processing_workflow
+from app.workers.tuning_experiment.workflow_continue_worker import continue_tuning_experiment_workflow as continue_pre_processing_workflow
 
 logger = get_logger(__name__)
 
 class TuningExperimentController:
-    async def tune_parameters(self, tuning_experiment_id: str) -> JSONResponse:
+    async def tune_parameters(self, tuning_experiment_dataset_id: str) -> JSONResponse:
         start_time = time.time()
         wide_event: dict[str, object] = {
             "event_type": "preprocess_request",
-            "tuning_experiment_id": tuning_experiment_id,
+            "tuning_experiment_dataset_id": tuning_experiment_dataset_id,
             "status": "processing",
         }
         
@@ -27,17 +27,17 @@ class TuningExperimentController:
                 process_tuning_experiment_files,
                 job_type=JobType.HEAVY,
                 job_prefix=JOB_PREFIXES_ENUM.TUNING_EXPERIMENT_JOB_PROCESSING_DATA,
-                tuning_experiment_id=tuning_experiment_id
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id
             )
             
-            logger.info(f"Enqueued file processing job {validate_file_job.id} for tuning experiment {tuning_experiment_id}")
+            logger.info(f"Enqueued file processing job {validate_file_job.id} for tuning experiment dataset {tuning_experiment_dataset_id}")
             
             # Enqueue cleaning data job that depends on the completion of the file validation job, ensuring proper sequencing of tasks
             enqueue_job(
                 continue_pre_processing_workflow,
                 job_type=JobType.LIGHT,
                 job_prefix=JOB_PREFIXES_ENUM.TUNING_EXPERIMENT_JOB_CLEANING_DATA,
-                tuning_experiment_id=tuning_experiment_id,
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
                 depends_on=validate_file_job
             )
                 

@@ -1,6 +1,8 @@
 import time as time_module
 from datetime import datetime, timezone
 
+from app.models.tuning_experiment_dataset import TuningExperimentDatasetStatusEnum
+from app.repositories.tuning_experiment_dataset_repository import TuningExperimentDatasetRepository
 from app.repositories.tuning_experiment_repository import TuningExperimentRepository
 from app.schemas.tuning_experiment_uploaded_row_schema import CreateTuningExperimentUploadedRowSchema
 from app.services.file_service import FileService
@@ -8,7 +10,6 @@ from app.services.minio_service import MinioService
 from app.repositories.tuning_experiment_uploaded_row_repository import TuningExperimentUploadedRowRepository
 from app.lib.logging.logging import get_logger
 from app.models.error_report import ValidationError
-from app.schemas.tuning_experiment_schema import TuningExperimentUpdateSchema
 
 logger = get_logger(__name__)
 
@@ -18,45 +19,48 @@ class TuningExperimentDataValidationService:
         minio_service: MinioService,
         tuning_experiment_repository: TuningExperimentRepository,
         tuning_experiment_uploaded_row_repository: TuningExperimentUploadedRowRepository,
+        tuning_experiment_dataset_repository: TuningExperimentDatasetRepository,
     ):
         self.minio_service = minio_service
         self.tuning_experiment_repository = tuning_experiment_repository
         self.tuning_experiment_uploaded_row_repository = tuning_experiment_uploaded_row_repository
+        self.tuning_experiment_dataset_repository = tuning_experiment_dataset_repository
 
-    async def run(self, tuning_experiment_id: str) -> dict[str, object] | None:
+    async def run(self, tuning_experiment_dataset_id: str) -> dict[str, object] | None:
         start_time = time_module.time()
         wide_event: dict[str, object] = {
             "event_type": "tuning_validate_dataset",
-            "tuning_experiment_id": tuning_experiment_id,
+            "tuning_experiment_dataset_id": tuning_experiment_dataset_id,
             "status": "processing",
         }
         
         try:
-            dataset = await self._get_dataset(tuning_experiment_id=tuning_experiment_id)
+            dataset = await self._get_dataset(tuning_experiment_dataset_id=tuning_experiment_dataset_id)
             
             if not dataset:
                 wide_event["status"] = "failed"
                 wide_event["error"] = "Dataset is empty or could not be retrieved"
                 wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
                 logger.error(wide_event)
-                return
+                return None
+            
+            await self.tuning_experiment_dataset_repository.update_tuning_experiment_dataset_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                new_status=TuningExperimentDatasetStatusEnum.validating
+            )
             
             field_names, rows = FileService.parse_csv_bytes(bytes(dataset))
             rows = self._deduplicate_rows_by_nosi(rows)
             
-            await self.tuning_experiment_repository.update_tuning_experiment(
-                tuning_experiment_id=tuning_experiment_id,
-                update_data=TuningExperimentUpdateSchema(
-                    status="processing"
-                )
-            )
+            valid_rows = await self._validate_csv_content(field_names=field_names, rows=rows, tuning_experiment_dataset_id=tuning_experiment_dataset_id)
             
-            # TANGKAP BARIS YANG VALID SAJA
-            valid_rows = await self._validate_csv_content(field_names=field_names, rows=rows, tuning_experiment_id=tuning_experiment_id)
+            await self.tuning_experiment_dataset_repository.update_tuning_experiment_dataset_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                new_status=TuningExperimentDatasetStatusEnum.validated
+            ) 
             
-            # SIMPAN HANYA BARIS YANG VALID
             await self._store_uploaded_rows(
-                tuning_experiment_id=tuning_experiment_id,
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
                 rows=valid_rows,
             )
             
@@ -67,53 +71,54 @@ class TuningExperimentDataValidationService:
             logger.info(wide_event)
             
             return {
-                "tuning_experiment_id": tuning_experiment_id,
+                "tuning_experiment_dataset_id": tuning_experiment_dataset_id,
                 "stored_rows": len(valid_rows),
             }
             
         except Exception as e:
-            logger.error("Error occurred while processing files", extra={"tuning_experiment_id": tuning_experiment_id, "error": str(e)})
-            await self.tuning_experiment_repository.update_tuning_experiment(
-                tuning_experiment_id=tuning_experiment_id,
-                update_data=TuningExperimentUpdateSchema(
-                    status="failed"
-                )
+            await self.tuning_experiment_dataset_repository.update_tuning_experiment_dataset_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                new_status=TuningExperimentDatasetStatusEnum.failed
             )
+            logger.error("Error occurred while processing files", extra={"tuning_experiment_dataset_id": tuning_experiment_dataset_id, "error": str(e)})
+            wide_event["status"] = "failed"
+            wide_event["error"] = str(e)
             raise e
         
-    async def _get_dataset(self, tuning_experiment_id: str) -> bytes | None:
+    async def _get_dataset(self, tuning_experiment_dataset_id: str) -> bytes | None:
         start_time = time_module.time()
         wide_event: dict[str, object] = {
             "event_type": "tuning_get_dataset",
-            "tuning_experiment_id": tuning_experiment_id,
+            "tuning_experiment_dataset_id": tuning_experiment_dataset_id,
             "status": "processing",
         }
         
         try:
-            tuning_experiment = await self.tuning_experiment_repository.get_tuning_experiment_by_id(tuning_experiment_id=tuning_experiment_id)
-
-            if not tuning_experiment or not tuning_experiment.dataset_file_path:
+            dataset = await self.tuning_experiment_dataset_repository.get_tuning_experiment_dataset_by_id_and_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                status=TuningExperimentDatasetStatusEnum.uploaded
+            )
+            
+            if not dataset:
                 wide_event["status"] = "failed"
-                wide_event["error"] = f"Tuning experiment not found"
+                wide_event["error"] = "Dataset not found for the given ID"
                 wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
                 logger.error(wide_event)
-                return
+                return None
             
             file_data = await self.minio_service.download_file(
-                object_name=str(tuning_experiment.dataset_file_path)
+                object_name=str(dataset.dataset_file_path)
             )
             
             if not file_data:
                 wide_event["status"] = "failed"
                 wide_event["error"] = "Downloaded file is empty"
-                wide_event["file_path"] = tuning_experiment.dataset_file_path
                 wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
                 logger.error(wide_event)
-                return
+                return None
             
             wide_event["status"] = "success"
             wide_event["file_size"] = len(file_data)
-            wide_event["file_path"] = tuning_experiment.dataset_file_path
             wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
             logger.info(wide_event)
             
@@ -127,7 +132,7 @@ class TuningExperimentDataValidationService:
             logger.error(wide_event)
             raise e
 
-    async def _validate_csv_content(self, field_names: list[str], rows: list[dict[str, str]], tuning_experiment_id: str) -> list[dict[str, str]]:
+    async def _validate_csv_content(self, field_names: list[str], rows: list[dict[str, str]], tuning_experiment_dataset_id: str) -> list[dict[str, str]]:
         try:
             missing_fields = self._get_missing_required_fields(field_names)
             
@@ -142,18 +147,11 @@ class TuningExperimentDataValidationService:
                 errors = self._validate_row(
                     row=row,
                     row_number=row_number,
-                    tuning_experiment_id=tuning_experiment_id,
+                    tuning_experiment_dataset_id=tuning_experiment_dataset_id,
                 )
                 
                 if not errors:
                     valid_rows.append(row)
-
-            await self.tuning_experiment_repository.update_tuning_experiment(
-                tuning_experiment_id=tuning_experiment_id,
-                update_data=TuningExperimentUpdateSchema(
-                    status="validated"
-                )
-            )
             
             return valid_rows
             
@@ -167,7 +165,7 @@ class TuningExperimentDataValidationService:
         
     async def _store_uploaded_rows(
         self,
-        tuning_experiment_id: str,
+        tuning_experiment_dataset_id: str,
         rows: list[dict[str, str]],
     ) -> None:
         uploaded_rows: list[CreateTuningExperimentUploadedRowSchema] = []
@@ -184,7 +182,7 @@ class TuningExperimentDataValidationService:
 
             uploaded_rows.append(
                 CreateTuningExperimentUploadedRowSchema(
-                    tuning_experiment_id=tuning_experiment_id,
+                    tuning_experiment_dataset_id=tuning_experiment_dataset_id,
                     nosi=nosi,
                     courier=courier,
                     customer_name=customer_name,
@@ -241,28 +239,28 @@ class TuningExperimentDataValidationService:
         self,
         row: dict[str, str],
         row_number: int,
-        tuning_experiment_id: str,
+        tuning_experiment_dataset_id: str,
     ) -> list[ValidationError]:
         errors: list[ValidationError] = []
 
         # Required fields
-        self._validate_required(row, "Nosi", row_number, tuning_experiment_id, errors)
-        self._validate_required(row, "Courier", row_number, tuning_experiment_id, errors)
-        self._validate_required(row, "Customer_Name", row_number, tuning_experiment_id, errors)
-        self._validate_required(row, "Address", row_number, tuning_experiment_id, errors)
-        self._validate_required(row, "City", row_number, tuning_experiment_id, errors)
-        weight_str = self._validate_required(row, "Weight", row_number, tuning_experiment_id, errors)
-        start_str = self._validate_required(row, "Start_Datetime", row_number, tuning_experiment_id, errors)
-        end_str = self._validate_required(row, "End_Datetime", row_number, tuning_experiment_id, errors)
+        self._validate_required(row, "Nosi", row_number, tuning_experiment_dataset_id, errors)
+        self._validate_required(row, "Courier", row_number, tuning_experiment_dataset_id, errors)
+        self._validate_required(row, "Customer_Name", row_number, tuning_experiment_dataset_id, errors)
+        self._validate_required(row, "Address", row_number, tuning_experiment_dataset_id, errors)
+        self._validate_required(row, "City", row_number, tuning_experiment_dataset_id, errors)
+        weight_str = self._validate_required(row, "Weight", row_number, tuning_experiment_dataset_id, errors)
+        start_str = self._validate_required(row, "Start_Datetime", row_number, tuning_experiment_dataset_id, errors)
+        end_str = self._validate_required(row, "End_Datetime", row_number, tuning_experiment_dataset_id, errors)
 
         # Weight validation
         weight = None
         if weight_str:
             weight = self._parse_float(weight_str)
             if weight is None:
-                self._add_error(errors, row_number, "Weight", weight_str, "Weight must be a valid number", tuning_experiment_id)
+                self._add_error(errors, row_number, "Weight", weight_str, "Weight must be a valid number", tuning_experiment_dataset_id)
             elif weight < 0:
-                self._add_error(errors, row_number, "Weight", weight_str, "Weight cannot be negative", tuning_experiment_id)
+                self._add_error(errors, row_number, "Weight", weight_str, "Weight cannot be negative", tuning_experiment_dataset_id)
 
         # Datetime validation
         start_dt = None
@@ -277,7 +275,7 @@ class TuningExperimentDataValidationService:
                     "Start_Datetime",
                     start_str,
                     "Invalid format (ISO 8601 or DD/MM/YYYY HH:MM[:SS])",
-                    tuning_experiment_id,
+                    tuning_experiment_dataset_id,
                 )
 
         if end_str:
@@ -289,7 +287,7 @@ class TuningExperimentDataValidationService:
                     "End_Datetime",
                     end_str,
                     "Invalid format (ISO 8601 or DD/MM/YYYY HH:MM[:SS])",
-                    tuning_experiment_id,
+                    tuning_experiment_dataset_id,
                 )
 
         # Cross-field validation
@@ -301,7 +299,7 @@ class TuningExperimentDataValidationService:
                     "Start_Datetime",
                     start_str or "",
                     "Start_Datetime must be earlier than End_Datetime",
-                    tuning_experiment_id,
+                    tuning_experiment_dataset_id,
                 )
 
         return errors
@@ -313,11 +311,11 @@ class TuningExperimentDataValidationService:
         field: str,
         value: str | None,
         message: str,
-        tuning_experiment_id: str,
+        tuning_experiment_dataset_id: str,
     ) -> None:
         logger.error("Validation error occurred", extra={
             "event_type": "validation_error",
-            "tuning_experiment_id": tuning_experiment_id,
+            "tuning_experiment_dataset_id": tuning_experiment_dataset_id,
             "row_number": row_number,
             "field_name": field,
             "invalid_value": value or "",

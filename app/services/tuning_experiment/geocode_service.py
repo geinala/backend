@@ -4,13 +4,12 @@ import time as time_module
 import traceback
 from typing import Literal, TypedDict
 from typing_extensions import NotRequired
+from app.models.tuning_experiment_dataset import TuningExperimentDatasetStatusEnum
 from app.models.tuning_experiment_uploaded_row import TuningExperimentUploadedRow
-from app.repositories.tuning_experiment_repository import TuningExperimentRepository
+from app.repositories.tuning_experiment_dataset_repository import TuningExperimentDatasetRepository
 from app.repositories.tuning_experiment_uploaded_row_repository import TuningExperimentUploadedRowRepository
-from app.repositories.tuning_experiment_repository import TuningExperimentRepository
 from app.schemas.tuning_experiment_uploaded_row_schema import UpdateGeocodedTuningExperimentUploadedRowSchema
 from app.services.tomtom_service import TomTomService
-from app.schemas.tuning_experiment_schema import TuningExperimentUpdateSchema
 
 from app.lib.logging.logging import get_logger
 
@@ -34,32 +33,40 @@ class TuningExperimentGeocodeService:
         self, 
         tomtom_service: TomTomService,
         tuning_experiment_uploaded_row_repository: TuningExperimentUploadedRowRepository,
-        tuning_experiment_repository: TuningExperimentRepository
+        tuning_experiment_dataset_repository: TuningExperimentDatasetRepository
         ):
         self.tomtom_service = tomtom_service
         self.tuning_experiment_uploaded_row_repository = tuning_experiment_uploaded_row_repository
-        self.tuning_experiment_repository = tuning_experiment_repository
+        self.tuning_experiment_dataset_repository = tuning_experiment_dataset_repository
 
     async def run(
         self,
-        tuning_experiment_id: str,
+        tuning_experiment_dataset_id: str,
     ):
-        logger.info(f"Starting geocoding process for tuning experiment {tuning_experiment_id}")
+        logger.info(f"Starting geocoding process for tuning experiment dataset {tuning_experiment_dataset_id}")
         start_time = time_module.time()
         wide_event: dict[str, object] = {
             "event_type": "geocode_process",
-            "tuning_experiment_id": tuning_experiment_id,
+            "tuning_experiment_dataset_id": tuning_experiment_dataset_id,
             "status": "processing",
         }
         
         try:
-            tuning_experiment = await self.tuning_experiment_repository.get_tuning_experiment_by_id(tuning_experiment_id)
+            dataset = await self.tuning_experiment_dataset_repository.get_tuning_experiment_dataset_by_id_and_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                status=TuningExperimentDatasetStatusEnum.cleaned
+            )
 
-            if not tuning_experiment:
-                raise ValueError(f"Tuning experiment with ID {tuning_experiment_id} not found.")
-            
-            uploaded_rows = await self.tuning_experiment_uploaded_row_repository.get_uploaded_rows_by_tuning_experiment_id_and_resolution_status(
-                tuning_experiment_id=tuning_experiment_id,
+            if not dataset:
+                raise ValueError(f"Tuning experiment dataset with ID {tuning_experiment_dataset_id} not found.")
+
+            await self.tuning_experiment_dataset_repository.update_tuning_experiment_dataset_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                new_status=TuningExperimentDatasetStatusEnum.geocoding
+            )
+
+            uploaded_rows = await self.tuning_experiment_uploaded_row_repository.get_uploaded_rows_by_tuning_experiment_dataset_id(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
             )
 
             total_rows = len(uploaded_rows)
@@ -93,26 +100,20 @@ class TuningExperimentGeocodeService:
                 wide_event["total_rows"] = total_rows
                 logger.info(wide_event)
 
-            await self.tuning_experiment_repository.update_tuning_experiment(
-                tuning_experiment_id=tuning_experiment_id,
-                update_data=TuningExperimentUpdateSchema(
-                    status="completed"
-                )
-            )
-
             wide_event["status"] = "success"
             wide_event["total_rows"] = total_rows
             wide_event["progress_percentage"] = 100
             wide_event["duration_ms"] = (time_module.time() - start_time) * 1000
 
             logger.info(wide_event)
-            
+            await self.tuning_experiment_dataset_repository.update_tuning_experiment_dataset_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                new_status=TuningExperimentDatasetStatusEnum.geocoded
+            )
         except ValueError as e:
-            await self.tuning_experiment_repository.update_tuning_experiment(
-                tuning_experiment_id=tuning_experiment_id,
-                update_data=TuningExperimentUpdateSchema(
-                    status="failed"
-                )
+            await self.tuning_experiment_dataset_repository.update_tuning_experiment_dataset_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                new_status=TuningExperimentDatasetStatusEnum.failed
             )
             wide_event["status"] = "failed"
             wide_event["error_type"] = "ValueError"
@@ -121,11 +122,9 @@ class TuningExperimentGeocodeService:
             logger.error(wide_event)
             raise e
         except KeyError as e:
-            await self.tuning_experiment_repository.update_tuning_experiment(
-                tuning_experiment_id=tuning_experiment_id,
-                update_data=TuningExperimentUpdateSchema(
-                    status="failed"
-                )
+            await self.tuning_experiment_dataset_repository.update_tuning_experiment_dataset_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                new_status=TuningExperimentDatasetStatusEnum.failed
             )
             wide_event["status"] = "failed"
             wide_event["error_type"] = "KeyError"
@@ -134,11 +133,9 @@ class TuningExperimentGeocodeService:
             logger.error(wide_event)
             raise e
         except Exception as e:
-            await self.tuning_experiment_repository.update_tuning_experiment(
-                tuning_experiment_id=tuning_experiment_id,
-                update_data=TuningExperimentUpdateSchema(
-                    status="failed"
-                )
+            await self.tuning_experiment_dataset_repository.update_tuning_experiment_dataset_status(
+                tuning_experiment_dataset_id=tuning_experiment_dataset_id,
+                new_status=TuningExperimentDatasetStatusEnum.failed
             )
             wide_event["status"] = "failed"
             wide_event["error_type"] = type(e).__name__
@@ -152,7 +149,7 @@ class TuningExperimentGeocodeService:
             if not row.final_address:
                 return {
                     "id": row.id,
-                    "status": "failed", # Tandai gagal jika alamat kosong
+                    "status": "failed",
                 }
             
             geocode_result = await self.tomtom_service.fuzzy_search(row.final_address)

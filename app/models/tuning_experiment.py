@@ -5,7 +5,6 @@ from sqlalchemy import (
     UUID,
     DateTime,
     Float,
-    ForeignKey,
     Integer,
     String,
     func,
@@ -19,26 +18,7 @@ class TuningExperiment(Base):
     __tablename__ = "tuning_experiments"
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    experiment_batch_id: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-    )
-    dataset_file_path: Mapped[str] = mapped_column(
-        "file_path",
-        String,
-        nullable=False,
-    )
-    algorithm_config_id: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("algorithm_configs.id"),
-        nullable=False,
-    )
-    status: Mapped[str] = mapped_column(
-        String(50),
-        nullable=False,
-        default="running",
-        server_default="running",
-    )
+    dataset_id: Mapped[str] = mapped_column(UUID(as_uuid=True), nullable=False)
     base_n_c: Mapped[int] = mapped_column(Integer, nullable=False)
     it_max: Mapped[int] = mapped_column(Integer, nullable=False)
     tab_tenure: Mapped[int] = mapped_column(Integer, nullable=False)

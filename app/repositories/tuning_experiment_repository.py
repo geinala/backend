@@ -27,3 +27,12 @@ class TuningExperimentRepository:
             self.db.rollback()
             raise
         
+    async def create_tuning_experiment(self, tuning_experiment: TuningExperiment) -> TuningExperiment:
+        try:
+            self.db.add(tuning_experiment)
+            self.db.commit()
+            self.db.refresh(tuning_experiment)
+            return tuning_experiment
+        except Exception:
+            self.db.rollback()
+            raise
