@@ -3,11 +3,8 @@ from rq import get_current_job
 
 from app.lib.db import get_db
 from app.repositories.courier_route_repository import CourierRouteRepository
-from app.repositories.matrix_repository import MatrixRepository
-from app.repositories.optimization_run_repository import OptimizationRunRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.services.route_service import RouteService
-from app.services.matrix_service import MatrixService
 from app.services.tomtom_service import TomTomService
 from app.repositories.solution_repository import SolutionRepository
 from app.repositories.node_repository import NodeRepository
@@ -35,19 +32,12 @@ async def generate_routes(simulation_id: str):
         db = next(db_session)
         route_service = RouteService(
             tomtom_service=TomTomService(), 
-            matrix_service=MatrixService(
-                matrix_repository=MatrixRepository(db),
-                node_repository=NodeRepository(db),
-                tomtom_service=TomTomService(),
-                simulation_repository=SimulationRepository(db),
-            ),
             solution_repository=SolutionRepository(db), 
             node_repository=NodeRepository(db),
             courier_repository=CourierRepository(db),
             route_repository=RouteRepository(db),
             simulation_repository=SimulationRepository(db),
             courier_route_repository=CourierRouteRepository(db),
-            optimization_run_repository=OptimizationRunRepository(db),
             )
 
         wide_event["stage"] = "generating_routes"

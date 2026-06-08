@@ -5,11 +5,13 @@ from rq.job import Job
 from app.configs.worker_configuration import JobType
 from app.constants.job_prefixes import JOB_PREFIXES_ENUM
 from app.constants.simulation_log_event_types import INITIAL_ROUTE_GENERATED, MATRIX_GENERATION_STARTED, MATRIX_RESULTS_PROCESSING_COMPLETED, MATRIX_RESULTS_PROCESSING_STARTED, OPTIMIZATION_COMPLETED, OPTIMIZATION_STARTED, ROUTE_GENERATION_STARTED
+from app.models.simulation_job import OptimizationAlgorithmEnum
 from app.repositories.simulation_repository import SimulationRepository
 from app.services.job_service import enqueue_job
+from app.services.manual_solver.types import ComparisonScenario
 from app.services.matrix_service import MatrixService
 from app.workers.matrix_worker import generate_matrices, get_matrix_results
-from app.workers.solver_worker import get_solution
+from app.workers.solver_worker import get_solution_with_or_tools, get_solution_with_manual_solver
 from app.workers.route_worker import generate_routes
 from app.workers.log_worker import create_simulation_log
 from app.schemas.simulation_log_schema import CreateSimulationLog
@@ -23,6 +25,10 @@ class OptimizationService:
         has_batches = self.matrix_service.has_batches(simulation_id)
         run_matrix_gen = not has_batches
         run_matrix_processing = run_matrix_gen or await self.matrix_service.has_pending_batches(simulation_id)
+        simulation = await self.simulation_repository.get_simulation_by_id(simulation_id)
+        
+        if not simulation:
+            raise ValueError(f"Simulation with ID {simulation_id} not found")
 
         last_job: Job | None = None
 
@@ -31,14 +37,24 @@ class OptimizationService:
             prefix: str | None,
             depends_on: Job | list[Job] | None,
             job_timeout: int | None = None,
+            scenario: ComparisonScenario | None = None
         ) -> Job:
+            kwargs: dict[str, Any] = {
+                "simulation_id": simulation_id,
+            }
+            
+            if job_timeout is not None:
+                kwargs["job_timeout"] = job_timeout
+                
+            if scenario is not None:
+                kwargs["scenario"] = scenario
+
             return enqueue_job(
                 func,
                 job_type=JobType.HEAVY,
                 job_prefix=prefix,
                 depends_on=depends_on,
-                simulation_id=simulation_id,
-                job_timeout=job_timeout,
+                **kwargs
             )
 
         def add_log(
@@ -93,7 +109,12 @@ class OptimizationService:
             depends_on=last_job,
         )
 
-        last_job = add_job(get_solution, JOB_PREFIXES_ENUM.GET_OPTIMIZATION_RESULT, last_job, job_timeout=3600)
+        if simulation.algorithm == OptimizationAlgorithmEnum.google_or_tools:
+            last_job = add_job(get_solution_with_or_tools, JOB_PREFIXES_ENUM.GET_OPTIMIZATION_RESULT, last_job, job_timeout=3600)
+        elif simulation.algorithm == OptimizationAlgorithmEnum.manual_without_optimization:
+            last_job = add_job(get_solution_with_manual_solver, JOB_PREFIXES_ENUM.GET_OPTIMIZATION_RESULT, last_job, job_timeout=3600, scenario="no_improvement")
+        elif simulation.algorithm == OptimizationAlgorithmEnum.manual_with_optimization:
+            last_job = add_job(get_solution_with_manual_solver, JOB_PREFIXES_ENUM.GET_OPTIMIZATION_RESULT, last_job, job_timeout=3600, scenario="with_improvement")
 
         add_log(
             OPTIMIZATION_COMPLETED,

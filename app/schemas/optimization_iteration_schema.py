@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict
 
 class CreateOptimizationIterationSchema(BaseModel):
     simulation_id: UUID | None = None
+    courier_id: int | None = None
+    solution_id: int | None = None
     event_type: str | None = None
     iteration: int
     elapsed_ms: float | None = None

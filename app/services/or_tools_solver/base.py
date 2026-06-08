@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 
 from ortools.constraint_solver import pywrapcp
 
-from app.services.solver.types import SolverProblem
+from app.services.or_tools_solver.types import SolverProblem
 
 
 class BaseSolverStrategy(ABC):

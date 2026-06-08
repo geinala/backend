@@ -27,6 +27,8 @@ class OptimizationIteration(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     simulation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("simulations.id"), nullable=True, index=True)
+    courier_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    solution_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     event_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     iteration: Mapped[int] = mapped_column(Integer, nullable=False)
     elapsed_ms: Mapped[float | None] = mapped_column(Float, nullable=True)

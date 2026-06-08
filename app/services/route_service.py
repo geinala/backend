@@ -1,18 +1,12 @@
 import asyncio
-import time
-from datetime import datetime, timezone
-from typing import Any, TypedDict
+from datetime import datetime
 
 from app.lib.date_converter import format_departure_time
-from app.models.courier import Courier
 from app.models.node import Node
 from app.models.simulation import SimulationStatusEnum
-from app.models.solution import Solution
 from app.models.route import RouteStatusEnum
 from app.repositories.courier_route_repository import CourierRouteRepository
-from app.repositories.optimization_run_repository import OptimizationRunRepository
 from app.schemas.courier_route_schema import CreateCourierRoute
-from app.schemas.optimization_run_schema import CreateOptimizationRun
 from app.schemas.route_schema import CreateRouteLeg
 from app.repositories.route_repository import RouteRepository
 from app.repositories.courier_repository import CourierRepository
@@ -22,47 +16,26 @@ from app.repositories.solution_repository import SolutionRepository
 from app.repositories.node_repository import NodeRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.services.realtime_event_service import CourierArrivalSchedule
-from app.services.matrix_service import MatrixService
-from app.services.solver import GreedySolver, SolverProblem, TabuSearchSolver
-from app.services.solver.types import Route as SolverRoute
 
-
-class RouteSummary(TypedDict):
-    lengthInMeters: int
-    travelTimeInSeconds: int
-
-class RouteBuild(TypedDict):
-    solution: Solution
-    courier: Courier
-    tabu_route: SolverRoute
-    greedy_summary: RouteSummary
-    tabu_summary: RouteSummary
-    greedy_computation_time_in_ms: float
-    tabu_computation_time_in_ms: float
-    nodes_explored: int
 class RouteService:
     ROUTE_GENERATION_SUBMISSION_DELAY_IN_SECONDS = 2
     
     def __init__(self, 
                  tomtom_service: TomTomService, 
-                 matrix_service: MatrixService,
                  solution_repository: SolutionRepository,
                  node_repository: NodeRepository,
                  courier_repository: CourierRepository,
                  route_repository: RouteRepository,
                  simulation_repository: SimulationRepository,
                  courier_route_repository: CourierRouteRepository,
-                 optimization_run_repository: OptimizationRunRepository,
                  ):
         self.tomtom_service = tomtom_service
-        self.matrix_service = matrix_service
         self.solution_repository = solution_repository
         self.node_repository = node_repository
         self.courier_repository = courier_repository
         self.route_repository = route_repository
         self.simulation_repository = simulation_repository
         self.courier_route_repository = courier_route_repository
-        self.optimization_run_repository = optimization_run_repository
 
     async def generate_routes(self, simulation_id: str) -> list[CourierArrivalSchedule]:
         simulation = await self.simulation_repository.get_simulation_by_id(simulation_id)
@@ -74,17 +47,11 @@ class RouteService:
         if not solutions:
             return []
 
-        time_matrix = await self.matrix_service.build_time_matrix(simulation_id)
         nodes = self.node_repository.get_nodes_by_simulation_id(simulation_id)
-
-        node_map = {
-            node.matrix_index: node
-            for node in nodes
-        }
+        node_map = {node.matrix_index: node for node in nodes}
 
         tomtom_responses: list[TomTomRouteResultResponse] = []
         courier_routes: list[CreateCourierRoute] = []
-        route_builds: list[RouteBuild] = []
 
         for index, solution in enumerate(solutions):
             courier = solution.courier
@@ -92,38 +59,12 @@ class RouteService:
             if courier is None:
                 raise Exception(f"Courier {solution.courier_id} could not be loaded for simulation {simulation_id}.")
 
-            courier_nodes = self.node_repository.get_nodes_by_simulation_id_and_courier_id(simulation_id, courier.id)
+            routes_plan = ":".join(self._build_route_points(solution.routes, node_map))
 
-            if not courier_nodes:
-                continue
-
-            selected_node_indices = self._build_courier_node_indices(simulation_id, courier_nodes, node_map)
-            submatrix = self._build_submatrix(time_matrix, selected_node_indices)
-            demands = [self._conversion_demand_to_grams(node_map[node_index].demand) for node_index in selected_node_indices]
-
-            problem = SolverProblem(
-                time_matrix=submatrix,
-                demands=demands,
-                courier=courier,
-            )
-
-            (tabu_route, tabu_computation_time_in_ms), (greedy_route, greedy_computation_time_in_ms) = await self._solve_problem_priority_queue(
-                problem,
-                demands,
-                selected_node_indices,
-                courier,
-            )
-
-            greedy_routes_plan = ":".join(self._build_route_points(greedy_route.route, node_map))
-            tabu_routes_plan = ":".join(self._build_route_points(tabu_route.route, node_map))
-
-            greedy_routes = self.tomtom_service.generate_routes(greedy_routes_plan, depart_at=format_departure_time(simulation.started_at))
-            routes = self.tomtom_service.generate_routes(tabu_routes_plan, depart_at=format_departure_time(simulation.started_at))
-
+            routes = self.tomtom_service.generate_routes(routes_plan, depart_at=format_departure_time(simulation.started_at))
             tomtom_responses.append(routes)
 
-            greedy_summary = greedy_routes["routes"][0]["summary"]
-            tabu_summary = routes["routes"][0]["summary"]
+            summary = routes["routes"][0]["summary"]
 
             courier_routes.append(
                 CreateCourierRoute(
@@ -131,86 +72,30 @@ class RouteService:
                     courier_id=courier.id,
                     route_version=1,
                     is_active=True,
-                    total_distance_in_meters=tabu_summary["lengthInMeters"],
-                    total_time_in_seconds=tabu_summary["travelTimeInSeconds"],
+                    total_distance_in_meters=summary["lengthInMeters"],
+                    total_time_in_seconds=summary["travelTimeInSeconds"],
                     is_initial_route=True
                 )
             )
 
-            route_builds.append(
-                {
-                    "solution": solution,
-                    "courier": courier,
-                    "tabu_route": tabu_route,
-                    "greedy_summary": greedy_summary,
-                    "tabu_summary": tabu_summary,
-                    "greedy_computation_time_in_ms": greedy_computation_time_in_ms,
-                    "tabu_computation_time_in_ms": tabu_computation_time_in_ms,
-                    "nodes_explored": len(tabu_route.route),
-                }
-            )
-            
             if index < len(solutions) - 1:
                 await asyncio.sleep(self.ROUTE_GENERATION_SUBMISSION_DELAY_IN_SECONDS)
 
         courier_route_objects = self.courier_route_repository.bulk_insert_courier_routes(courier_routes)
 
-        optimization_runs: list[CreateOptimizationRun] = []
-
-        for route_build, courier_route in zip(route_builds, courier_route_objects, strict=True):
-            triggered_at = datetime.now(timezone.utc)
-
-            optimization_runs.extend(
-                [
-                    CreateOptimizationRun(
-                        simulation_id=route_build["solution"].simulation_id,
-                        run_type="initial",
-                        algorithm="greedy",
-                        trigger_type="initial",
-                        total_distance_in_meters=route_build["greedy_summary"]["lengthInMeters"],
-                        total_travel_time_in_seconds=route_build["greedy_summary"]["travelTimeInSeconds"],
-                        computation_time_in_ms=route_build["greedy_computation_time_in_ms"],
-                        total_nodes_explored=route_build["nodes_explored"],
-                        congestion_check_id=None,
-                        triggered_at=triggered_at,
-                        courier_id=route_build["courier"].id,
-                    ),
-                    CreateOptimizationRun(
-                        simulation_id=route_build["solution"].simulation_id,
-                        run_type="initial",
-                        algorithm="tabu_search",
-                        trigger_type="initial",
-                        total_distance_in_meters=route_build["tabu_summary"]["lengthInMeters"],
-                        total_travel_time_in_seconds=route_build["tabu_summary"]["travelTimeInSeconds"],
-                        computation_time_in_ms=route_build["tabu_computation_time_in_ms"],
-                        total_nodes_explored=route_build["nodes_explored"],
-                        congestion_check_id=None,
-                        before_total_distance_in_meters=route_build["greedy_summary"]["lengthInMeters"],
-                        before_total_travel_time_in_seconds=route_build["greedy_summary"]["travelTimeInSeconds"],
-                        triggered_at=triggered_at,
-                        courier_id=route_build["courier"].id,
-                    ),
-                ]
-            )
-
-        self.optimization_run_repository.bulk_insert_optimization_runs(optimization_runs)
-
         route_legs: list[CreateRouteLeg] = []
         arrival_schedules: list[CourierArrivalSchedule] = []
 
-        for i, route_build in enumerate(route_builds):
-
-            courier_route = courier_route_objects[i]
+        for i, courier_route in enumerate(courier_route_objects):
             routes = tomtom_responses[i]
-            solution = route_build["solution"]
-            tabu_route = route_build["tabu_route"]
-
+            solution = solutions[i]
+            
             legs = routes["routes"][0]["legs"]
             cumulative_travel_time_seconds = 0
 
             for seq, leg in enumerate(legs):
-                origin_node = node_map.get(tabu_route.route[seq])
-                destination_node = node_map.get(tabu_route.route[seq + 1])
+                origin_node = node_map.get(solution.routes[seq])
+                destination_node = node_map.get(solution.routes[seq + 1])
 
                 if origin_node is None or destination_node is None:
                     continue
@@ -251,7 +136,7 @@ class RouteService:
                     {
                         "simulation_id": simulation_id,
                         "courier_route_id": int(courier_route.id),
-                        "courier_id": int(route_build["courier"].id),
+                        "courier_id": int(solution.courier_id),
                         "node_id": int(destination_node.id),
                         "eta_seconds": cumulative_travel_time_seconds,
                     }
@@ -276,131 +161,10 @@ class RouteService:
 
         return arrival_schedules
 
-    def _solve_problem(
-        self,
-        solver: GreedySolver | TabuSearchSolver,
-        problem: SolverProblem,
-        demands: list[int],
-        selected_node_indices: list[int],
-        courier: Courier,
-    ) -> tuple[SolverRoute, float]:
-        start_time = time.time()
-        manager, routing, solution = solver.solve(problem)
-
-        if not solution:
-            raise Exception(f"No solution found for courier {courier.id}.")
-
-        route = self._parse_solution(manager, routing, solution, demands, selected_node_indices, courier)
-        computation_time_in_ms = (time.time() - start_time) * 1000
-
-        return route, computation_time_in_ms
-
-    async def _solve_problem_priority_queue(
-        self,
-        problem: SolverProblem,
-        demands: list[int],
-        selected_node_indices: list[int],
-        courier: Courier,
-    ) -> tuple[tuple[SolverRoute, float], tuple[SolverRoute, float]]:
-        solver_queue: asyncio.PriorityQueue[tuple[int, str, GreedySolver | TabuSearchSolver]] = asyncio.PriorityQueue()
-        await solver_queue.put((0, "tabu_search", TabuSearchSolver()))
-        await solver_queue.put((1, "greedy", GreedySolver()))
-
-        results: dict[str, tuple[SolverRoute, float]] = {}
-
-        async def queue_worker() -> None:
-            while True:
-                try:
-                    _, algorithm, solver = solver_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    return
-
-                try:
-                    results[algorithm] = await asyncio.to_thread(
-                        self._solve_problem,
-                        solver,
-                        problem,
-                        demands,
-                        selected_node_indices,
-                        courier,
-                    )
-                finally:
-                    solver_queue.task_done()
-
-        workers = [asyncio.create_task(queue_worker()) for _ in range(2)]
-        await solver_queue.join()
-        await asyncio.gather(*workers)
-
-        tabu_result = results.get("tabu_search")
-        greedy_result = results.get("greedy")
-
-        if tabu_result is None or greedy_result is None:
-            raise Exception(f"Solver comparison did not complete for courier {courier.id}.")
-
-        return tabu_result, greedy_result
-
     def _build_route_points(self, route_nodes: list[int], node_map: dict[int, Node]) -> list[str]:
         route_points: list[str] = []
-
         for node_index in route_nodes:
             node = node_map.get(node_index)
-
             if node:
                 route_points.append(f"{node.latitude},{node.longitude}")
-
         return route_points
-
-    def _parse_solution(
-        self,
-        manager: Any,
-        routing: Any,
-        solution: Any,
-        demands: list[int],
-        selected_node_indices: list[int],
-        courier: Courier,
-    ) -> SolverRoute:
-        index: int = routing.Start(0)
-        route_load: int = 0
-        route_time: int = 0
-        route_nodes: list[int] = []
-
-        while not routing.IsEnd(index):
-            node_index: int = manager.IndexToNode(index)
-            route_load += demands[node_index]
-            route_nodes.append(selected_node_indices[node_index])
-
-            previous_index: int = index
-            index = solution.Value(routing.NextVar(index))
-            route_time += routing.GetArcCostForVehicle(previous_index, index, 0)
-
-        node_index: int = int(manager.IndexToNode(index))
-        route_nodes.append(selected_node_indices[node_index])
-
-        return SolverRoute(
-            courier_id=courier.id,
-            route=route_nodes,
-            load=route_load,
-            time=route_time,
-        )
-
-    def _build_courier_node_indices(
-        self,
-        simulation_id: str,
-        courier_nodes: list[Node],
-        nodes_by_index: dict[int, Node],
-    ) -> list[int]:
-        if 0 not in nodes_by_index:
-            raise Exception(f"Depot node is missing for simulation {simulation_id}.")
-
-        node_indices = [0]
-        node_indices.extend(sorted(node.matrix_index for node in courier_nodes))
-        return node_indices
-
-    def _build_submatrix(self, time_matrix: list[list[int]], node_indices: list[int]) -> list[list[int]]:
-        return [
-            [time_matrix[origin_index][destination_index] for destination_index in node_indices]
-            for origin_index in node_indices
-        ]
-
-    def _conversion_demand_to_grams(self, demand: float) -> int:
-        return round(demand * 1000)

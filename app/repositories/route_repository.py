@@ -31,6 +31,7 @@ class DueArrivalEvent(TypedDict):
     courier_route_id: int
     sequence: int
     is_baseline: bool
+    congestion_delay_threshold_in_seconds: int
 
 
 class NextRouteLegSnapshot(TypedDict):
@@ -216,6 +217,7 @@ class RouteRepository:
                 RouteLeg.courier_route_id,
                 RouteLeg.sequence,
                 RouteLeg.route_status,
+                Simulation.congestion_delay_threshold_in_seconds
             )
             .join(CourierRoute, CourierRoute.id == RouteLeg.courier_route_id)
             .join(Solution, Solution.id == CourierRoute.solution_id)
@@ -238,6 +240,7 @@ class RouteRepository:
                 "courier_route_id": int(row[5]),
                 "sequence": int(row[6]),
                 "is_baseline": row[7] in [RouteStatusEnum.baseline_planned, RouteStatusEnum.baseline_running],
+                "congestion_delay_threshold_in_seconds": int(row[8]),
             }
             for row in rows
         ]

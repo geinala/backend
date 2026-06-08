@@ -3,8 +3,8 @@ from typing import Any
 
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
-from app.services.solver.base import BaseSolverStrategy
-from app.services.solver.types import SolverProblem
+from app.services.or_tools_solver.base import BaseSolverStrategy
+from app.services.or_tools_solver.types import SolverProblem
 
 
 class OrToolsSolverStrategy(BaseSolverStrategy):

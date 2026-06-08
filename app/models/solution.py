@@ -15,6 +15,7 @@ class Solution(Base):
     routes: Mapped[list[int]] = mapped_column(JSONB, nullable=False)  # Array of node indices representing the route
     demand_in_kilograms: Mapped[float] = mapped_column(Float, nullable=False)  # Total demand served by this vehicle
     time_in_seconds: Mapped[int] = mapped_column(Integer, nullable=False)  # Total time for this route
+    distance_in_meters: Mapped[int] = mapped_column(Integer, nullable=False)  # Total distance for this route
     
     simulation = relationship("Simulation", back_populates="solutions")
     courier = relationship("Courier", back_populates="solutions")

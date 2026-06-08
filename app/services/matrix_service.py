@@ -81,8 +81,6 @@ class MatrixService:
             f"with {len(origin_locations)} origin nodes and {len(destination_locations)} destination nodes"
         )
 
-        logger.info(f"Submitting matrix at {datetime.now(timezone.utc)} for simulation {simulation_id} with node indices {origins[0].id} to {origins[-1].id}")
-        logger.info(f"Submitting matrix at {datetime.now(timezone.utc)} for simulation {simulation_id} with node indices {destinations[0].id} to {destinations[-1].id}")
         logger.info(f"Submitting matrix with departure time {format_departure_time(simulation.started_at)} for simulation {simulation_id}")
         departure_time = format_departure_time(
             simulation.started_at
@@ -233,6 +231,7 @@ class MatrixService:
     
     async def build_time_matrix(self, simulation_id: str) -> list[list[int]]:
         cached_time_matrix = self._get_cached_time_matrix(simulation_id)
+        
         if cached_time_matrix is not None:
             return cached_time_matrix
 
@@ -253,6 +252,23 @@ class MatrixService:
         self._cache_time_matrix(simulation_id, time_matrix)
 
         return time_matrix
+    
+    async def build_distance_matrix(self, simulation_id: str) -> list[list[int]]:
+        results = self.matrix_repository.get_matrix_results_by_simulation_id(simulation_id)
+
+        nodes = self._get_all_nodes(simulation_id)
+        num_nodes = len(nodes)
+
+        distance_matrix = [[0] * num_nodes for _ in range(num_nodes)]
+
+        for result in results:
+            origin = result.origin_index
+            destination = result.destination_index
+            if origin < num_nodes and destination < num_nodes:
+                distance_matrix[origin][destination] = result.length_in_meters
+
+        logger.info(f"Built {num_nodes}x{num_nodes} distance matrix for simulation {simulation_id} from {len(results)} results")
+        return distance_matrix
     
     async def generate_live_submatrix_for_reoptimization(
         self,

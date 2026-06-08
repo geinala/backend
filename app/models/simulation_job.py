@@ -50,12 +50,12 @@ class SimulationJob(Base):
     __tablename__ = "simulation_jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[str] = mapped_column(String(300), ForeignKey("users.id"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(300), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     status: Mapped[SimulationJobStatusEnum] = mapped_column(Enum(SimulationJobStatusEnum, native_enum=False), nullable=False, default=SimulationJobStatusEnum.uploaded, index=True)
     current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    depot_id: Mapped[int] = mapped_column(Integer, ForeignKey("depots.id"), nullable=False, index=True)
+    depot_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     depot_location_address: Mapped[str] = mapped_column(String, nullable=False)
     depot_location_latitude: Mapped[float] = mapped_column(Float, nullable=False)
     depot_location_longitude: Mapped[float] = mapped_column(Float, nullable=False)

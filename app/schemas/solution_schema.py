@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class CreateSolution(BaseModel):
@@ -7,3 +7,5 @@ class CreateSolution(BaseModel):
     routes: list[int]
     demand_in_kilograms: float
     time_in_seconds: int
+    distance_in_meters: int
+    model_config = ConfigDict(from_attributes=True)

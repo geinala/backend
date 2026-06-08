@@ -7,28 +7,18 @@ class SolutionRepository:
     def __init__(self, db: Session):
         self.db = db
         
-    async def bulk_insert_solutions(self, solutions_data: list[CreateSolution]):
+    async def bulk_insert_solutions(self, solutions: list[CreateSolution]):
         new_solutions = [
-            Solution(
-                simulation_id=solution_data.simulation_id,
-                courier_id=solution_data.courier_id,
-                routes=solution_data.routes,
-                demand_in_kilograms=solution_data.demand_in_kilograms,
-                time_in_seconds=solution_data.time_in_seconds
-            )
-            for solution_data in solutions_data
+            Solution(**solution.model_dump()) for solution in solutions
         ]
+        
         self.db.bulk_save_objects(new_solutions)
         self.db.commit()
         return new_solutions
         
-    async def insert_solution(self, solution_data: CreateSolution):
+    async def insert_solution(self, solution: CreateSolution):
         new_solution: Solution = Solution(
-            simulation_id=solution_data.simulation_id,
-            courier_id=solution_data.courier_id,
-            routes=solution_data.routes,
-            demand_in_kilograms=solution_data.demand_in_kilograms,
-            time_in_seconds=solution_data.time_in_seconds
+            **solution.model_dump()
         )
         self.db.add(new_solution)
         self.db.commit()

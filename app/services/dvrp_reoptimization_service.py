@@ -28,7 +28,7 @@ from app.schemas.simulation_log_schema import CreateSimulationLog
 from app.schemas.simulation_schema import UpdateSimulationSchema
 from app.schemas.solution_schema import CreateSolution
 from app.services.matrix_service import MatrixService
-from app.services.solver import GreedySolver, SolverProblem, TabuSearchSolver
+from app.services.or_tools_solver import GreedySolver, SolverProblem, TabuSearchSolver
 from app.services.tomtom_service import TomTomService
 from app.models.node import Node
 from app.lib.date_converter import format_departure_time
@@ -72,12 +72,19 @@ class DVRPReoptimizationService:
         force_duration_update_only: bool = False,
         is_baseline: bool,
     ) -> dict[str, Any]:
+        simulation = await self.simulation_repository.get_simulation_by_id(simulation_id)
+        if simulation is None:
+            logger.error(f"Simulation {simulation_id} not found for congestion handling.")
+            raise ValueError(f"Simulation {simulation_id} not found.")
+        
         snapshot = self.route_repository.get_courier_route_snapshot(courier_route_id)
         if snapshot is None:
+            logger.error(f"Courier route {courier_route_id} not found for congestion handling in simulation {simulation_id}.")
             raise ValueError(f"Courier route {courier_route_id} not found for simulation {simulation_id}.")
 
         current_route_leg = self.route_repository.get_route_leg_by_id(route_leg_id)
         if current_route_leg is None:
+            logger.error(f"Route leg {route_leg_id} not found for congestion handling in simulation {simulation_id}.")
             raise ValueError(f"Route leg {route_leg_id} not found for simulation {simulation_id}.")
 
         nodes = self.node_repository.get_nodes_by_simulation_id(simulation_id)
@@ -86,15 +93,18 @@ class DVRPReoptimizationService:
 
         destination_node = node_by_id.get(current_route_leg.to_node_id)
         if destination_node is None:
+            logger.error(f"Destination node {current_route_leg.to_node_id} not found for congestion handling in simulation {simulation_id}.")
             raise ValueError(f"Destination node {current_route_leg.to_node_id} could not be loaded.")
         
         origin_node = node_by_id.get(current_route_leg.from_node_id)
         if origin_node is None:
+            logger.error(f"Origin node {current_route_leg.from_node_id} not found for congestion handling in simulation {simulation_id}.")
             raise ValueError(f"Origin node {current_route_leg.from_node_id} could not be loaded.")
 
         route_node_indices = list(snapshot["routes"])
         
         if destination_node.matrix_index not in route_node_indices:
+            logger.error(f"Destination node with matrix index {destination_node.matrix_index} is missing from courier route {courier_route_id} for congestion handling in simulation {simulation_id}.")
             raise ValueError(
                 f"Destination matrix index {destination_node.matrix_index} is missing from courier route {courier_route_id}."
             )
@@ -163,7 +173,15 @@ class DVRPReoptimizationService:
         self.route_repository.update_route_leg_delay(route_leg_id, delay_seconds)
 
         logger.info(f"Processing reoptimization for baseline: {is_baseline}")
-        if force_duration_update_only or not remaining_node_indices or is_baseline:
+
+        should_update_duration_only = (
+            force_duration_update_only
+            or not simulation.enable_resequence
+            or not remaining_node_indices
+            or is_baseline
+        )
+        
+        if should_update_duration_only:
             self.route_repository.shift_route_legs_after_sequence(courier_route_id, current_sequence + 1, delay_seconds)
             final_optimization_run = self._store_no_solver_run(
                 simulation_id=simulation_id,
@@ -389,12 +407,13 @@ class DVRPReoptimizationService:
             )
 
             newest_solution = await self.solution_repository.insert_solution(
-                solution_data=CreateSolution(
+                solution=CreateSolution(
                     simulation_id=simulation_id,
                     courier_id=courier_id,
                     demand_in_kilograms=sum(demands) / 1000,
                     routes=full_route_nodes,
                     time_in_seconds=int(final_candidate["estimated_total_time_in_seconds"]),
+                    distance_in_meters=int(final_candidate["estimated_total_distance_in_meters"]),
                 )
             )
 

@@ -1,12 +1,12 @@
 from ortools.constraint_solver import pywrapcp
 
-from app.services.solver.ortools_solver import build_greedy_solver
-from app.services.solver.types import SolverProblem
+from app.services.or_tools_solver.ortools_solver import build_tabu_search_solver
+from app.services.or_tools_solver.types import SolverProblem
 
 
-class GreedySolver:
+class TabuSearchSolver:
     def __init__(self):
-        self.strategy = build_greedy_solver()
+        self.strategy = build_tabu_search_solver()
 
     def solve(
         self,

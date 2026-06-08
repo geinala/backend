@@ -36,7 +36,7 @@ class Simulation(Base):
     __tablename__ = "simulations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     simulation_job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("simulation_jobs.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     status: Mapped[SimulationStatusEnum] = mapped_column(Enum(SimulationStatusEnum, native_enum=False), nullable=False, default=SimulationStatusEnum.optimizing, index=True)
@@ -55,7 +55,7 @@ class Simulation(Base):
     max_neighbors_2opt: Mapped[int | None] = mapped_column(Integer, nullable=True)
     diversify_after_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
     diversification_strength: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    depot_id: Mapped[int] = mapped_column(Integer, ForeignKey("depots.id"), nullable=False, index=True)
+    depot_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     depot_location_address: Mapped[str] = mapped_column(String, nullable=False)
     depot_location_latitude: Mapped[float] = mapped_column(Float, nullable=False)
     depot_location_longitude: Mapped[float] = mapped_column(Float, nullable=False)
@@ -77,4 +77,8 @@ class Simulation(Base):
     solutions: Mapped[list["Solution"]] = relationship(
         "Solution",
         back_populates="simulation",
+    )
+    optimization_iterations = relationship(
+        "OptimizationIteration",
+        back_populates="simulation"
     )

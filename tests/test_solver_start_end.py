@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-from app.services.solver.types import SolverProblem
-from app.services.solver.tabu_search_solver import TabuSearchSolver
+from app.services.or_tools_solver.types import SolverProblem
+from app.services.or_tools_solver.tabu_search_solver import TabuSearchSolver
 
 
 def test_tabu_search_solver_supports_distinct_start_and_end_indices():

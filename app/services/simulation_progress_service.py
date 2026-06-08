@@ -60,6 +60,7 @@ class SimulationProgressService:
         self.traffic_incident_repository = traffic_incident_repository
         self.matrix_service = matrix_service
         self.tomtom_service = tomtom_service
+
     def process_running_simulation_arrivals(
         self,
         reference_time: datetime,
@@ -107,7 +108,12 @@ class SimulationProgressService:
                     )
 
                     if next_route_leg is not None:
-                        self._process_next_route_leg(arrival, next_route_leg, current_job=current_job)
+                        self._process_next_route_leg(
+                            arrival, 
+                            next_route_leg, 
+                            current_job=current_job, 
+                            traffic_congestion_threshold_seconds=arrival["congestion_delay_threshold_in_seconds"]
+                        )
 
                 self.simulation_repository.apply_arrival_progress(
                     simulation_id=arrival["simulation_id"],
@@ -172,6 +178,7 @@ class SimulationProgressService:
         arrival: DueArrivalEvent,
         next_route_leg: NextRouteLegSnapshot,
         current_job: Job | None = None,
+        traffic_congestion_threshold_seconds: int = settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS,
     ) -> None:
         route_points = decode_polyline(
             next_route_leg["encoded_polyline"],
@@ -228,7 +235,7 @@ class SimulationProgressService:
         result = self._find_congestion_incident(
             incidents,
             route_points,
-            threshold_seconds=settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS,
+            threshold_seconds=traffic_congestion_threshold_seconds,
         )
         congestion_result, incident_match_debugs = result
 
@@ -273,7 +280,7 @@ class SimulationProgressService:
 
         force_duration_update_only = (
             congestion_detected
-            and aggregated_delay <= settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS
+            and aggregated_delay <= traffic_congestion_threshold_seconds
         )
 
         congestion_check = self.route_leg_congestion_check_repository.store_congestion_check(
@@ -325,7 +332,7 @@ class SimulationProgressService:
                     "detected_at": detection_time.isoformat(),
                     "total_delay_in_seconds": aggregated_delay,
                     "force_duration_update_only": force_duration_update_only,
-                    "resequence_threshold_seconds": settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS,
+                    "resequence_threshold_seconds": traffic_congestion_threshold_seconds,
                 }
             )
 
@@ -336,7 +343,7 @@ class SimulationProgressService:
                 route_leg_id=next_route_leg["route_leg_id"],
                 sequence=next_route_leg["sequence"],
                 traffic_delay_in_seconds=aggregated_delay,
-                threshold_seconds=settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS,
+                threshold_seconds=traffic_congestion_threshold_seconds,
                 latitude=next_route_leg["destination_latitude"],
                 longitude=next_route_leg["destination_longitude"],
                 metadata={
@@ -375,7 +382,7 @@ class SimulationProgressService:
                     "courier_id": arrival["courier_id"],
                     "route_leg_id": next_route_leg["route_leg_id"],
                     "sequence": next_route_leg["sequence"],
-                    "threshold_seconds": settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS,
+                    "threshold_seconds": traffic_congestion_threshold_seconds,
                     "incident_match_debugs": incident_match_debugs,
                 }
             )
