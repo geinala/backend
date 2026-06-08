@@ -1,5 +1,4 @@
 from datetime import datetime
-from uuid import uuid4
 
 from sqlalchemy import (
     UUID,
@@ -17,7 +16,7 @@ from app.lib.db import Base
 class TuningExperiment(Base):
     __tablename__ = "tuning_experiments"
 
-    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     dataset_id: Mapped[str] = mapped_column(UUID(as_uuid=True), nullable=False)
     base_n_c: Mapped[int] = mapped_column(Integer, nullable=False)
     it_max: Mapped[int] = mapped_column(Integer, nullable=False)

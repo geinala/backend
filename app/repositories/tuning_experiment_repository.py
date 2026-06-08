@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.models.tuning_experiment import TuningExperiment
-from app.schemas.tuning_experiment_schema import TuningExperimentUpdateSchema
+from app.schemas.tuning_experiment_schema import TuningExperimentCreateSchema, TuningExperimentUpdateSchema
 
 class TuningExperimentRepository:
     def __init__(self, db: Session): 
@@ -27,12 +27,13 @@ class TuningExperimentRepository:
             self.db.rollback()
             raise
         
-    async def create_tuning_experiment(self, tuning_experiment: TuningExperiment) -> TuningExperiment:
+    async def create_tuning_experiment(self, tuning_experiment: TuningExperimentCreateSchema) -> TuningExperiment:
         try:
-            self.db.add(tuning_experiment)
+            db_tuning_experiment = TuningExperiment(**tuning_experiment.model_dump())
+            self.db.add(db_tuning_experiment)
             self.db.commit()
-            self.db.refresh(tuning_experiment)
-            return tuning_experiment
+            self.db.refresh(db_tuning_experiment)
+            return db_tuning_experiment
         except Exception:
             self.db.rollback()
             raise

@@ -15,10 +15,18 @@ class TuningExperimentDatasetRepository:
             TuningExperimentDataset.status == status
         ).first()
         
-    async def update_tuning_experiment_dataset_status(self, tuning_experiment_dataset_id: str, new_status: TuningExperimentDatasetStatusEnum) -> TuningExperimentDataset | None:
-        dataset = self.db.query(TuningExperimentDataset).filter(TuningExperimentDataset.id == tuning_experiment_dataset_id).first()
+    async def update_tuning_experiment_dataset_status(
+        self,
+        tuning_experiment_dataset_id: str,
+        new_status: TuningExperimentDatasetStatusEnum
+    ):
+        dataset = self.db.query(TuningExperimentDataset)\
+            .filter(TuningExperimentDataset.id == tuning_experiment_dataset_id)\
+            .first()
+
         if dataset:
             dataset.status = new_status
             self.db.commit()
             self.db.refresh(dataset)
+
         return dataset

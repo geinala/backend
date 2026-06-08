@@ -33,6 +33,12 @@ class EnvironmentConfiguration(BaseSettings):
     RQ_LIGHT_RESULT_TTL: int = int(os.getenv("RQ_LIGHT_RESULT_TTL", 300))
     RQ_LIGHT_WORKERS: int = int(os.getenv("RQ_LIGHT_WORKERS", 4))
 
+    # Tuning Processing Queue (Tuning experiments)
+    RQ_TUNING_QUEUE: str = os.getenv("RQ_TUNING_QUEUE", "tuning")
+    RQ_TUNING_JOB_TIMEOUT: str = os.getenv("RQ_TUNING_JOB_TIMEOUT", "1h")
+    RQ_TUNING_RESULT_TTL: int = int(os.getenv("RQ_TUNING_RESULT_TTL", 3600))
+    RQ_TUNING_WORKERS: int = int(os.getenv("RQ_TUNING_WORKERS", 2))
+
     # RQ Scheduler Configuration
     ENABLE_SIMULATION_ARRIVAL_CHECK_SCHEDULE: bool = os.getenv("ENABLE_SIMULATION_ARRIVAL_CHECK_SCHEDULE", "true").lower() == "true"
     SIMULATION_ARRIVAL_CHECK_SCHEDULE_INTERVAL_SECONDS: int = int(os.getenv("SIMULATION_ARRIVAL_CHECK_SCHEDULE_INTERVAL_SECONDS", 300))

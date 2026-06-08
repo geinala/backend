@@ -8,6 +8,7 @@ from app.configs.environment_configuration import get_environment_configuration
 class JobType(Enum):
     HEAVY = "heavy"      # CPU-intensive, long-running jobs
     LIGHT = "light"      # Quick, low-resource jobs
+    TUNING = "tuning"      # Jobs related to tuning experiments, can be treated as heavy
     DEFAULT = "default"  # Standard priority jobs
 
 
@@ -43,6 +44,15 @@ class WorkerConfiguration:
                 job_timeout=self.settings.RQ_LIGHT_JOB_TIMEOUT,
                 result_ttl=self.settings.RQ_LIGHT_RESULT_TTL,
                 default_result_ttl=self.settings.RQ_LIGHT_RESULT_TTL,
+            )
+        
+        elif job_type == JobType.TUNING:
+            return Queue(
+                name=self.settings.RQ_TUNING_QUEUE,
+                connection=redis_client,
+                job_timeout=self.settings.RQ_TUNING_JOB_TIMEOUT,
+                result_ttl=self.settings.RQ_TUNING_RESULT_TTL,
+                default_result_ttl=self.settings.RQ_TUNING_RESULT_TTL,
             )
         
         else:

@@ -53,7 +53,7 @@ class RoutingModel:
 
         return self._solve_greedy(params)
 
-    def _get_metrics(self, tour: List[int]) -> Tuple[int, int, int]:
+    def _get_metrics(self, tour: List[int]) -> Tuple[float, float, float]:
         cost = _tour_cost(tour, self.cost_matrix)
         dist = _tour_cost(tour, self.distance_matrix)
         time_val = _tour_cost(tour, self.time_matrix)
@@ -135,7 +135,7 @@ class RoutingModel:
 
         # --- Solusi Awal ---
         starts = min(n, 5) if params.first_solution_strategy == FirstSolutionStrategy.AUTOMATIC else 1
-        best_tour, best_cost = [], int("inf")
+        best_tour, best_cost = [], float("inf")
         for s in range(starts):
             t = _nearest_neighbor_init(self.cost_matrix, start=s)
             c = _tour_cost(t, self.cost_matrix)
@@ -143,7 +143,7 @@ class RoutingModel:
 
         _, best_dist, best_time = self._get_metrics(best_tour)
         algo_name = "Nearest Neighbor + Tabu Search"
-        history: List[int] = [best_cost]
+        history: List[float] = [best_cost]
         
         logs.append(self._create_event(
             event_type="NEW_BEST", iteration=0, elapsed_ms=round((time.perf_counter() - t0)*1000, 3),
@@ -212,7 +212,7 @@ class RoutingModel:
                 oropt = _generate_oropt_moves(current_tour, self.cost_matrix, current_cost, params.max_neighbors_oropt)
                 candidates = sorted(candidates + oropt, key=lambda x: x[0])
 
-            chosen_tour, chosen_cost, chosen_move = None, int("inf"), None
+            chosen_tour, chosen_cost, chosen_move = None, float("inf"), None
             used_aspiration = False
 
             for _, move_key, new_tour in candidates:
@@ -325,7 +325,7 @@ class _TabuList:
         self._queue.clear()
         self._set.clear()
 
-def _tour_cost(tour: List[int], matrix: List[List[int]]) -> int:
+def _tour_cost(tour: List[int], matrix: List[List[float]]) -> float:
     n = len(tour)
     return sum(matrix[tour[i]][tour[(i + 1) % n]] for i in range(n))
 
@@ -340,30 +340,30 @@ def _normalize_move_key(move_key: MoveKey) -> MoveKey:
         return (min(two_opt), max(two_opt))
     return move_key
 
-def _nearest_neighbor_init(matrix: List[List[int]], start: int = 0) -> List[int]:
+def _nearest_neighbor_init(matrix: List[List[float]], start: int = 0) -> List[int]:
     n = len(matrix)
     visited, tour = [False] * n, [start]
     visited[start], current = True, start
     for _ in range(n - 1):
-        nearest, nearest_c = -1, int("inf")
+        nearest, nearest_c = -1, float("inf")
         for j in range(n):
             if not visited[j] and matrix[current][j] < nearest_c:
                 nearest_c, nearest = matrix[current][j], j
         tour.append(nearest); visited[nearest] = True; current = nearest
     return tour
 
-def _nearest_neighbor_tsp(matrix: List[List[int]]) -> List[int]:
-    best_tour, best_cost = [], int("inf")
+def _nearest_neighbor_tsp(matrix: List[List[float]]) -> List[int]:
+    best_tour, best_cost = [], float("inf")
     for start in range(len(matrix)):
         tour = _nearest_neighbor_init(matrix, start)
         c = _tour_cost(tour, matrix)
         if c < best_cost: best_cost, best_tour = c, tour[:]
     return best_tour
 
-def _greedy_edge_tsp(matrix: List[List[int]]) -> List[int]:
+def _greedy_edge_tsp(matrix: List[List[float]]) -> List[int]:
     n = len(matrix)
     edges = sorted((matrix[i][j], i, j) for i in range(n) for j in range(i + 1, n))
-    degree: List[int] = [0] * n
+    degree: List[float] = [0] * n
     adj: List[List[int]] = [[] for _ in range(n)]
     parent: List[int] = list(range(n))
     rank: List[int] = [0] * n
@@ -396,7 +396,7 @@ def _greedy_edge_tsp(matrix: List[List[int]]) -> List[int]:
                 break
     return tour
 
-def _two_opt_improve(tour: List[int], matrix: List[List[int]], max_iter: int, t0: float, time_limit: float) -> Tuple[List[int], int]:
+def _two_opt_improve(tour: List[int], matrix: List[List[float]], max_iter: int, t0: float, time_limit: float) -> Tuple[List[int], int]:
     best, n, improved, iteration = tour[:], len(tour), True, 0
     while improved and iteration < max_iter:
         if (time.perf_counter() - t0) > time_limit: break
@@ -411,10 +411,10 @@ def _two_opt_improve(tour: List[int], matrix: List[List[int]], max_iter: int, t0
                     improved = True
     return best, iteration
 
-def _generate_2opt_moves(tour: List[int], matrix: List[List[int]], top_k: int) -> List[Candidate]:
+def _generate_2opt_moves(tour: List[int], matrix: List[List[float]], top_k: int) -> List[Candidate]:
     n = len(tour)
 
-    raw: list[tuple[int, tuple[int, int]]] = []
+    raw: list[tuple[float, tuple[int, int]]] = []
     
     for i in range(1, n - 1):
         for j in range(i + 1, n):
@@ -424,7 +424,7 @@ def _generate_2opt_moves(tour: List[int], matrix: List[List[int]], top_k: int) -
     raw.sort(key=lambda x: x[0])
     return [(d, (i, j), tour[:i] + tour[i:j+1][::-1] + tour[j+1:]) for d, (i, j) in raw[:top_k]]
 
-def _generate_oropt_moves(tour: List[int], matrix: List[List[int]], current_cost: int, top_k: int) -> List[Candidate]:
+def _generate_oropt_moves(tour: List[int], matrix: List[List[float]], current_cost: float, top_k: int) -> List[Candidate]:
     n = len(tour)
     moves: List[Candidate] = []
     

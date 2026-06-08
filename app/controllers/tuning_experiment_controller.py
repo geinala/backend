@@ -22,7 +22,6 @@ class TuningExperimentController:
         }
         
         try:
-            # Enqueue file validation and processing job with a unique job prefix for better traceability in logs and monitoring
             validate_file_job = enqueue_job(
                 process_tuning_experiment_files,
                 job_type=JobType.HEAVY,

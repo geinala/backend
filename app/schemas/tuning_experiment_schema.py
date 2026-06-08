@@ -1,11 +1,11 @@
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
 class TuningExperimentBaseSchema(BaseModel):
-    experiment_batch_id: str
-    dataset_file_path: str
-    algorithm_config_id: int
+    dataset_id: str
 
     base_n_c: int
     it_max: int
@@ -18,7 +18,13 @@ class TuningExperimentBaseSchema(BaseModel):
 
 
 class TuningExperimentCreateSchema(TuningExperimentBaseSchema):
-    pass
+    initial_fitness_score: float | None = None
+    best_fitness_score: float | None = None
+    execution_time_ms: float | None = None
+    convergence_iteration: int | None = None
+    improvement_percentage: float | None = None
+    best_route_payload: str | None = None
+    completed_at: datetime | None = None
 
 class TuningExperimentUpdateSchema(BaseModel):
     initial_fitness_score: float | None = None

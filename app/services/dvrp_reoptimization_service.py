@@ -77,17 +77,17 @@ class CandidatePlan(TypedDict):
     route: list[int]
     computation_time_in_ms: float
     nodes_explored: int
-    future_distance_in_meters: int
-    future_time_in_seconds: int
-    estimated_total_distance_in_meters: int
-    estimated_total_time_in_seconds: int
+    future_distance_in_meters: float
+    future_time_in_seconds: float
+    estimated_total_distance_in_meters: float
+    estimated_total_time_in_seconds: float
     route_response: TomTomResponse | None
     summary: RouteLegSummary | None
 
 class SolverResult(TypedDict):
     algorithm: AlgorithmLiteral
     route_nodes: list[int]
-    internal_time_in_seconds: int
+    internal_time_in_seconds: float
     computation_time_in_ms: float
     nodes_explored: int
 
@@ -96,10 +96,10 @@ class ReoptimizationResult(TypedDict):
     courier_route_id: int
     algorithm_used: AlgorithmLiteral | None
     outcome: str
-    before_total_time_in_seconds: int
-    after_total_time_in_seconds: int
-    before_total_distance_in_meters: int
-    after_total_distance_in_meters: int
+    before_total_time_in_seconds: float
+    after_total_time_in_seconds: float
+    before_total_distance_in_meters: float
+    after_total_distance_in_meters: float
 
 class CourierRouteSnapshot(TypedDict):
     routes: Sequence[int]
@@ -332,8 +332,8 @@ class DVRPReoptimizationService:
             )
         else:
             manual_problem = ManualSolverProblem(
-                distance_matrix=distance_submatrix,
-                time_matrix=submatrix,
+                distance_matrix=[[float(x) for x in row] for row in distance_submatrix],
+                time_matrix=[[float(x) for x in row] for row in submatrix],
                 depot=0,
             )
             

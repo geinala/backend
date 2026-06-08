@@ -1,3 +1,5 @@
+from typing import Literal
+
 from app.services.manual_solver.base import BaseManualSolverStrategy
 from app.services.manual_solver.types import (
     ManualSolverProblem,
@@ -67,7 +69,7 @@ class TabuSearchSolver(BaseManualSolverStrategy):
         self,
         *,
         first_solution_strategy: FirstSolutionStrategy = FirstSolutionStrategy.AUTOMATIC,
-        optimization_target: str = "time",
+        optimization_target: Literal["time", "distance"] = "time",
         max_local_search_iterations: int = 500,
         max_execution_time_seconds: float = 60.0,
         early_stop_no_improvement_iterations: int = 150,
@@ -91,16 +93,16 @@ class TabuSearchSolver(BaseManualSolverStrategy):
                 LocalImprovementStrategy.TWO_OPT if use_two_opt_post else LocalImprovementStrategy.NONE
             ),
             optimization_target=optimization_target,
-            max_local_search_iterations=max_local_search_iterations,
+            max_local_search_iterations=max_local_search_iterations, # parameter to tune (it_max)
             max_execution_time_seconds=max_execution_time_seconds,
-            early_stop_no_improvement_iterations=early_stop_no_improvement_iterations,
-            tabu_tenure=tabu_tenure,
+            early_stop_no_improvement_iterations=early_stop_no_improvement_iterations, # (20% of it_max)
+            tabu_tenure=tabu_tenure, # primary parameter to tune (tab_tenure)
             enable_aspiration=enable_aspiration,
             use_oropt_neighborhood=use_oropt_neighborhood,
             max_neighbors_2opt=max_neighbors_2opt,
             max_neighbors_oropt=max_neighbors_oropt,
-            diversify_after_iterations=diversify_after_iterations,
-            diversification_strength=diversification_strength,
+            diversify_after_iterations=diversify_after_iterations, # parameter to tune (it_cons)
+            diversification_strength=diversification_strength, # parameter to tune (it_div)
             max_improvement_iterations=max_improvement_iterations,
             random_seed=random_seed,
             track_iteration_history=track_iteration_history,

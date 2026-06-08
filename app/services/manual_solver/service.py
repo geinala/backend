@@ -118,8 +118,8 @@ class ManualSolverService:
             )
 
             problem = ManualSolverProblem(
-                distance_matrix=distance_submatrix,
-                time_matrix=time_submatrix,
+                distance_matrix=[[float(x) for x in row] for row in distance_submatrix],
+                time_matrix=[[float(x) for x in row] for row in time_submatrix],
                 depot=0,
             )
 
