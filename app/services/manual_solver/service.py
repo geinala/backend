@@ -123,7 +123,6 @@ class ManualSolverService:
                 depot=0,
             )
 
-            # Eksekusi secara paralel untuk mencatat komputasi waktu masing-masing algoritma
             greedy_task = asyncio.to_thread(self._run_solver_with_time, specs.greedy, problem)
             tabu_task = asyncio.to_thread(self._run_solver_with_time, specs.tabu_search, problem)
 
@@ -134,12 +133,11 @@ class ManualSolverService:
 
             triggered_at = datetime.now(timezone.utc)
 
-            # Rekam metrik komparasi untuk Optimization Run
             optimization_runs.extend([
                 CreateOptimizationRun(
                     simulation_id=UUID(simulation_id),
                     run_type="initial",
-                    algorithm="greedy",
+                    algorithm="greedy_with_2opt" if scenario == "with_improvement" else "greedy_without_2opt",
                     trigger_type="initial",
                     total_distance_in_meters=int(greedy_assignment.total_distance_in_meters),
                     total_travel_time_in_seconds=int(greedy_assignment.total_duration_in_seconds),
@@ -152,7 +150,7 @@ class ManualSolverService:
                 CreateOptimizationRun(
                     simulation_id=UUID(simulation_id),
                     run_type="initial",
-                    algorithm="tabu_search",
+                    algorithm="tabu_search_with_2opt" if scenario == "with_improvement" else "tabu_search_without_2opt",
                     trigger_type="initial",
                     total_distance_in_meters=int(tabu_assignment.total_distance_in_meters),
                     total_travel_time_in_seconds=int(tabu_assignment.total_duration_in_seconds),
@@ -166,7 +164,6 @@ class ManualSolverService:
                 )
             ])
 
-            # Simpan Solusi & Iterasi seperti implementasi aslinya
             for solver_label, assignment in (
                 ("greedy", greedy_assignment),
                 ("tabu_search", tabu_assignment),

@@ -11,12 +11,12 @@ class OptimizationEvent(TypedDict, total=False):
     iteration: int
     elapsed_ms: float
     timestamp: datetime
-    current_distance_in_meters: float
-    current_duration_in_seconds: float
-    best_distance_in_meters: float
-    best_duration_in_seconds: float
-    distance_improvement_in_meters: float
-    duration_improvement_in_seconds: float
+    current_distance_in_meters: int
+    current_duration_in_seconds: int
+    best_distance_in_meters: int
+    best_duration_in_seconds: int
+    distance_improvement_in_meters: int
+    duration_improvement_in_seconds: int
     improvement_percent: float
     iterations_without_improvement: int
     objective_value: float
@@ -33,12 +33,12 @@ class OptimizationEvent(TypedDict, total=False):
 @dataclass
 class Assignment:
     tour: List[int]
-    total_distance_in_meters: float
-    total_duration_in_seconds: float
+    total_distance_in_meters: int
+    total_duration_in_seconds: int
     algorithm_used: str
     elapsed_ms: float
     iterations: int = 0
-    history: List[float] = field(default_factory=list[float])
+    history: List[int] = field(default_factory=list[int])
     logs: List[OptimizationEvent] = field(default_factory=list[OptimizationEvent])
 
 

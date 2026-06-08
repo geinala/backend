@@ -104,7 +104,7 @@ class OrToolsSolverService:
                 CreateOptimizationRun(
                     simulation_id=UUID(simulation_id),
                     run_type="initial",
-                    algorithm="greedy",
+                    algorithm="greedy_or_tools",
                     trigger_type="initial",
                     total_distance_in_meters=greedy_distance,
                     total_travel_time_in_seconds=greedy_route.time, 
@@ -117,7 +117,7 @@ class OrToolsSolverService:
                 CreateOptimizationRun(
                     simulation_id=UUID(simulation_id),
                     run_type="initial",
-                    algorithm="tabu_search",
+                    algorithm="tabu_search_or_tools",
                     trigger_type="initial",
                     total_distance_in_meters=tabu_distance,
                     total_travel_time_in_seconds=tabu_route.time,
