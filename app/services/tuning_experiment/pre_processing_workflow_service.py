@@ -44,7 +44,7 @@ class TuningExperimentPreProcessingWorkflowService:
                 job_prefix=JOB_PREFIXES_ENUM.TUNING_EXPERIMENT_JOB_GEOCODING,
                 tuning_experiment_dataset_id=dataset.id,
                 depends_on=cleaning_job,
-                job_timeout=3600
+                job_timeout=21600
             )
             
             logger.info(f"Enqueued geocoding job {geocoding_job.id} for tuning experiment {dataset.id} after cleaning completion")
@@ -55,7 +55,7 @@ class TuningExperimentPreProcessingWorkflowService:
                 job_prefix=JOB_PREFIXES_ENUM.TUNING_EXPERIMENT_JOB_GET_RESULT,
                 tuning_experiment_dataset_id=dataset.id,
                 depends_on=geocoding_job,
-                job_timeout=7200
+                job_timeout=21600
             )
         except Exception as e:
             raise e
