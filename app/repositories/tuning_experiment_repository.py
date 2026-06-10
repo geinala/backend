@@ -7,7 +7,10 @@ class TuningExperimentRepository:
     def __init__(self, db: Session): 
         self.db = db
         
-    async def get_tuning_experiment_by_id(self, tuning_experiment_id: str):
+    async def get_newest_tuning_experiments(self, limit: int = 100) -> list[TuningExperiment]:
+        return self.db.query(TuningExperiment).order_by(TuningExperiment.created_at.desc()).limit(limit).all()
+        
+    async def get_tuning_experiment_by_id(self, tuning_experiment_id: str) -> TuningExperiment | None:
         return self.db.query(TuningExperiment).filter(TuningExperiment.id == tuning_experiment_id).first()
         
     async def update_tuning_experiment(self, tuning_experiment_id: str, update_data: TuningExperimentUpdateSchema) -> TuningExperiment | None:

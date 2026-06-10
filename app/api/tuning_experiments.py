@@ -8,6 +8,14 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/tuning-experiments", tags=["Tuning Experiments"])
 
 @router.post(
+    path="/calibrate",
+    summary="Calibrate parameters based on the latest tuning experiments"
+)
+async def calibrate_parameters():
+    controller = TuningExperimentController()
+    return await controller.calibrate_parameters()
+
+@router.post(
     path="/{tuning_experiment_dataset_id}",
     summary="Start search for optimal parameters for a given tuning experiment"
 )

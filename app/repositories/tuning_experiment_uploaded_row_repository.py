@@ -83,3 +83,14 @@ class TuningExperimentUploadedRowRepository:
         except Exception:
             self.db.rollback()
             raise
+
+    async def delete_rows_by_ids(self, row_ids: list[int]) -> None:
+        if not row_ids:
+            return
+
+        try:
+            self.db.query(TuningExperimentUploadedRow).filter(TuningExperimentUploadedRow.id.in_(row_ids)).delete(synchronize_session=False)
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise

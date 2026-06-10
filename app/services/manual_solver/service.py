@@ -1,5 +1,6 @@
 import asyncio
 import time
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
@@ -22,24 +23,23 @@ from app.services.manual_solver.types import ManualSolverProblem, Assignment, Op
 from app.services.manual_solver.manual_solver import GreedySolver, TabuSearchSolver
 from app.services.manual_solver.base import BaseManualSolverStrategy
 
+from app.repositories.tabu_search_configuration_repository import TabuSearchConfigurationRepository
+from app.repositories.daily_optimization_log_repository import DailyOptimizationLogRepository
+from app.schemas.daily_optimization_log_schema import DailyOptimizationLogCreate
+
 logger = get_logger(__name__)
 
 @dataclass(frozen=True)
 class _SolverSpec:
     greedy: BaseManualSolverStrategy
-    tabu_search: BaseManualSolverStrategy
-
 
 def _build_solver_specs(scenario: ComparisonScenario) -> _SolverSpec:
     use_two_opt = scenario == "with_improvement"
-
     return _SolverSpec(
         greedy=GreedySolver(
             first_solution_strategy=FirstSolutionStrategy.NEAREST_NEIGHBOR,
             use_two_opt=use_two_opt
-        ),
-        
-        tabu_search=TabuSearchSolver(use_two_opt_post=use_two_opt),
+        )
     )
 
 @dataclass
@@ -59,6 +59,8 @@ class ManualSolverService:
         simulation_repository: SimulationRepository,
         optimization_iteration_repository: OptimizationIterationRepository,
         optimization_run_repository: OptimizationRunRepository,
+        tabu_search_configuration_repository: TabuSearchConfigurationRepository,
+        daily_optimization_log_repository: DailyOptimizationLogRepository
     ) -> None:
         self.matrix_service = matrix_service
         self.courier_repository = courier_repository
@@ -67,7 +69,9 @@ class ManualSolverService:
         self.simulation_repository = simulation_repository
         self.optimization_iteration_repository = optimization_iteration_repository
         self.optimization_run_repository = optimization_run_repository
-
+        self.tabu_search_configuration_repository = tabu_search_configuration_repository
+        self.daily_optimization_log_repository = daily_optimization_log_repository
+        
     def _run_solver_with_time(
         self, 
         solver: BaseManualSolverStrategy, 
@@ -94,6 +98,25 @@ class ManualSolverService:
 
         total_solutions_inserted = 0
         optimization_runs: list[CreateOptimizationRun] = []
+        
+        active_config = await self.tabu_search_configuration_repository.get_active_tabu_search_configuration()
+        
+        if not active_config:
+            logger.warning("No active Tabu Search config found! Using paper default coefficients.")
+            it_max_mult = 10.0
+            tab_ten_div = 3.0
+            it_cons_mult = 1.0
+            it_div_div = 5.0
+        else:
+            it_max_mult = active_config.it_max_multiplier
+            tab_ten_div = active_config.tab_tenure_divider
+            it_cons_mult = active_config.it_cons_multiplier
+            it_div_div = active_config.it_div_divider
+
+        log_total_nodes = 0
+        log_total_greedy_fitness = 0.0
+        log_total_tabu_fitness = 0.0
+        log_total_execution_ms = 0.0
 
         for courier in couriers:
             courier_nodes = self.node_repository.get_nodes_by_simulation_id_and_courier_id(
@@ -123,13 +146,40 @@ class ManualSolverService:
                 depot=0,
             )
 
+            n_c = len(selected_node_indices) - 1
+            
+            it_max = max(1, round(it_max_mult * n_c))
+            tabu_tenure = max(1, math.floor(n_c / tab_ten_div)) if tab_ten_div > 0 else 1
+            it_cons = round(it_cons_mult * n_c)
+            it_div = max(1, math.floor(n_c / it_div_div)) if it_div_div > 0 else 1
+
+            dynamic_tabu_solver = TabuSearchSolver(
+                enable_aspiration=True,
+                random_seed=42,
+                first_solution_strategy=FirstSolutionStrategy.NEAREST_NEIGHBOR,
+                use_two_opt_post=(scenario == "with_improvement"),
+                max_local_search_iterations=it_max,
+                early_stop_no_improvement_iterations=round(it_max * 0.2),
+                tabu_tenure=tabu_tenure,
+                diversify_after_iterations=it_cons,
+                diversification_strength=it_div,
+                optimization_target="time",
+                track_iteration_history=True,
+                save_intermediate_solutions=True,
+            )
+
             greedy_task = asyncio.to_thread(self._run_solver_with_time, specs.greedy, problem)
-            tabu_task = asyncio.to_thread(self._run_solver_with_time, specs.tabu_search, problem)
+            tabu_task = asyncio.to_thread(self._run_solver_with_time, dynamic_tabu_solver, problem)
 
             (greedy_assignment, greedy_time_ms), (tabu_assignment, tabu_time_ms) = await asyncio.gather(greedy_task, tabu_task)
 
             if greedy_assignment is None or tabu_assignment is None:
                 raise Exception(f"No solution found for courier {courier.id} in simulation {simulation_id}.")
+                
+            log_total_nodes += n_c
+            log_total_greedy_fitness += greedy_assignment.total_duration_in_seconds
+            log_total_tabu_fitness += tabu_assignment.total_duration_in_seconds
+            log_total_execution_ms += tabu_time_ms
 
             triggered_at = datetime.now(timezone.utc)
 
@@ -208,6 +258,25 @@ class ManualSolverService:
                 total_active_couriers=total_solutions_inserted // 2,
             ),
         )
+        
+        total_unique_couriers = total_solutions_inserted // 2
+        if active_config and total_unique_couriers > 0:
+            improvement_pct = 0.0
+            if log_total_greedy_fitness > 0:
+                improvement_pct = ((log_total_greedy_fitness - log_total_tabu_fitness) / log_total_greedy_fitness) * 100.0
+
+            log_payload = DailyOptimizationLogCreate(
+                config_id=active_config.id,
+                date=datetime.now(timezone.utc),
+                total_nodes=log_total_nodes,
+                total_couriers=total_unique_couriers,
+                execution_time_ms=log_total_execution_ms,
+                total_fitness_score=log_total_tabu_fitness,
+                improvement_percentage=improvement_pct
+            )
+            
+            await self.daily_optimization_log_repository.create_daily_optimization_log(data=log_payload)
+            logger.info(f"Daily optimization log created successfully with {improvement_pct:.2f}% improvement using config {active_config.id}")
 
     async def solve_no_improvement(self, simulation_id: str) -> None:
         await self.solve(simulation_id, scenario="no_improvement")

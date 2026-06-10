@@ -24,6 +24,7 @@ class TuningExperimentCreateSchema(TuningExperimentBaseSchema):
     convergence_iteration: int | None = None
     improvement_percentage: float | None = None
     best_route_payload: str | None = None
+    best_iteration_history_payload: str | None = None
     completed_at: datetime | None = None
 
 class TuningExperimentUpdateSchema(BaseModel):

@@ -79,6 +79,7 @@ class TuningExperimentGeocodeService:
                     *[self._geocode_single_row(row, semaphore) for row in batch_rows]
                 )
 
+                # 1. Kumpulkan row yang sukses untuk di-update
                 batch_success_rows: list[UpdateGeocodedTuningExperimentUploadedRowSchema] = [
                     UpdateGeocodedTuningExperimentUploadedRowSchema(
                         id=row["id"],
@@ -91,9 +92,21 @@ class TuningExperimentGeocodeService:
                     for row in batch_results 
                     if row.get("status") == "success"
                 ]
+
+                # 2. Kumpulkan ID dari row yang gagal untuk dihapus
+                batch_failed_ids = [
+                    row["id"] 
+                    for row in batch_results 
+                    if row.get("status") == "failed"
+                ]
                 
+                # Eksekusi Update
                 if batch_success_rows:
                     await self.tuning_experiment_uploaded_row_repository.update_geocoded_rows(updated_rows=batch_success_rows)
+                
+                # Eksekusi Delete
+                if batch_failed_ids:
+                    await self.tuning_experiment_uploaded_row_repository.delete_rows_by_ids(row_ids=batch_failed_ids)
 
                 wide_event["batch_number"] = batch_index
                 wide_event["batch_size"] = len(batch_rows)
@@ -145,6 +158,7 @@ class TuningExperimentGeocodeService:
             raise e
         
     async def _geocode_single_row(self, row: TuningExperimentUploadedRow, semaphore: asyncio.Semaphore) -> GeocodeRowResult:
+        # (Kode di fungsi ini tetap sama, tidak ada yang perlu diubah)
         async with semaphore:
             if not row.final_address:
                 return {

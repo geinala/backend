@@ -1,6 +1,8 @@
+from app.repositories.daily_optimization_log_repository import DailyOptimizationLogRepository
 from app.repositories.optimization_iteration_repository import OptimizationIterationRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.repositories.solution_repository import SolutionRepository
+from app.repositories.tabu_search_configuration_repository import TabuSearchConfigurationRepository
 from app.services.manual_solver.service import ManualSolverService
 from app.services.manual_solver.types import ComparisonScenario
 from app.services.or_tools_solver import OrToolsSolverService
@@ -53,7 +55,9 @@ async def get_solution_with_manual_solver(simulation_id: str, scenario: Comparis
                 solution_repository = SolutionRepository(db),
                 simulation_repository=SimulationRepository(db),
                 optimization_iteration_repository=OptimizationIterationRepository(db),
-                optimization_run_repository=OptimizationRunRepository(db)
+                optimization_run_repository=OptimizationRunRepository(db),
+                daily_optimization_log_repository=DailyOptimizationLogRepository(db),
+                tabu_search_configuration_repository=TabuSearchConfigurationRepository(db)
             )
             
             await solver_service.solve(simulation_id, scenario=scenario)

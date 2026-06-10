@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import List, Dict
 from collections import defaultdict
 import math
 import time
@@ -91,11 +91,11 @@ class TuningExperimentService:
         logger.info(f"Successfully loaded {len(rows)} rows from dataset.")
 
         default_datetime = datetime.now(timezone.utc).replace(
-            hour=8, minute=0, second=0, microsecond=0,
+            hour=1, minute=0, second=0, microsecond=0,
         )
 
         start_datetime = (
-            rows[0].start_datetime.replace(hour=8, minute=0, second=0, microsecond=0)
+            rows[0].start_datetime.replace(hour=1, minute=0, second=0, microsecond=0)
             if rows and rows[0].start_datetime is not None
             else default_datetime
         )
@@ -118,12 +118,11 @@ class TuningExperimentService:
         
         logger.info(f"Calculated average NC: {avg_nc}. Generated {len(configs)} grid configurations to evaluate.")
 
-        # 3. PRE-COMPUTE MATRIKS UNTUK MASING-MASING KURIR (MENGHEMAT API CALL)
         logger.info("Starting pre-computation of distance and time matrices from TomTom...")
-        courier_matrices: Dict[str, Any] = {}
         for courier, c_rows in courier_groups.items():
-            nodes: list[Node] = []
+            logger.info(f"\n{'='*50}\n[COURIER] Memulai tuning rute untuk Kurir: {courier}\n{'='*50}")
             
+            nodes: list[Node] = []
             depot_node = Node(
                 matrix_index=0,
                 latitude=depot.latitude,
@@ -141,45 +140,30 @@ class TuningExperimentService:
                     matrix_index += 1
                     
             if len(nodes) < 3:
-                logger.warning(
-                    f"Skipping courier '{courier}' because they only have {len(nodes)} nodes "
-                    "(Depot + Packages). Tabu Search requires at least 1 Depot and 2 Packages."
-                )
+                logger.warning(f"[SKIP] Kurir '{courier}' dilewati (Jumlah nodes tidak mencukupi untuk dioptimasi: {len(nodes)}).")
                 continue
-                
+
+            nc_courier = len(nodes) - 1
+            
+            logger.info(f"[API] Menarik Matrix Jarak & Waktu dari TomTom untuk {len(nodes)} nodes... (Mohon tunggu)")
+            
             time_matrix, distance_matrix = await self.matrix_service.generate_live_distance_matrix_and_time_matrix_for_tuning_experiment(
                 nodes=nodes,
                 departure_time=start_datetime
             )
-            
-            logger.info(f"Received time matrix for courier '{courier}': {time_matrix}")
-            logger.info(f"Received distance matrix for courier '{courier}': {distance_matrix}")
-            
-            courier_matrices[courier] = {
-                "time_matrix": time_matrix,
-                "distance_matrix": distance_matrix,
-                "nodes_count": len(nodes)
-            }
-            
-            logger.info(f"Successfully generated matrix for courier '{courier}' with {len(nodes)} nodes.")
 
-        best_fitness = float("inf")
-        best_result: TuningExperimentResult | None = None
-        all_runs_payload: list[TuningExperimentRunCreateSchema] = []
+            configs = self.generate_grid_configs(nc_courier)
+            logger.info(f"[CONFIG] Kurir {courier} memiliki {nc_courier} nodes. Menyiapkan {len(configs)} iterasi grid search.")
 
-        # 4. LOOPING GRID SEARCH
-        logger.info("Starting grid search evaluation...")
-        for i, config in enumerate(configs, start=1):
-            logger.info(f"Evaluating config {i}/{len(configs)}: it_max={config.it_max}, tab_tenure={config.tab_tenure}, it_cons={config.it_cons}, it_div={config.it_div}")
-            started = time.time()
-            
-            current_total_fitness = 0.0
-            routes_payload: Dict[str, list[int]] = {}
-            histories: list[list[float]] = []
+            best_fitness = float("inf")
+            best_result: TuningExperimentResult | None = None
+            all_runs_payload: list[TuningExperimentRunCreateSchema] = []
             max_convergence = 0
-            
-            # Eksekusi Tabu Search untuk setiap kurir dengan config yang sama
-            for courier, matrices in courier_matrices.items():
+
+            for i, config in enumerate(configs, start=1):
+                logger.info(f"[EVAL {i}/{len(configs)}] Evaluating config: it_max={config.it_max}, tab_tenure={config.tab_tenure}, it_cons={config.it_cons}, it_div={config.it_div}")
+                started = time.time()
+                
                 solver = TabuSearchSolver(
                     enable_aspiration=True,
                     random_seed=42,
@@ -195,18 +179,19 @@ class TuningExperimentService:
                 
                 _, assignment = solver.solve(problem=ManualSolverProblem(
                     depot=0,
-                    time_matrix=matrices["time_matrix"],
-                    distance_matrix=matrices["distance_matrix"],
+                    time_matrix=[[float(x) for x in row] for row in time_matrix],
+                    distance_matrix=[[float(x) for x in row] for row in distance_matrix],
                 ))
                 
                 if assignment is None:
-                    logger.warning(f"Solver failed to find a valid assignment for courier '{courier}' under current config.")
+                    logger.warning(f"[EVAL {i}/{len(configs)}] Gagal menemukan solusi untuk config ini.")
                     continue
                 
-                current_total_fitness += assignment.total_duration_in_seconds
-                routes_payload[courier] = assignment.tour
-                histories.append(assignment.history)
+                fitness = assignment.total_duration_in_seconds
+                execution_ms = (time.time() - started) * 1000
                 
+                logger.info(f"[EVAL {i}/{len(configs)}] Config completed in {execution_ms:.2f}ms. Total fitness: {fitness} seconds. Convergence at iter: {max_convergence}")
+
                 conv_iter = assignment.iterations
                 for log in reversed(assignment.logs):
                     if log.get("is_new_best"):
@@ -214,100 +199,82 @@ class TuningExperimentService:
                         break
                 max_convergence = max(max_convergence, conv_iter)
 
-            if current_total_fitness == 0.0 or not histories:
-                logger.warning(f"Skipping config {i} because all couriers failed.")
-                continue
-
-            execution_ms = (time.time() - started) * 1000
-            logger.info(f"Config {i} completed in {execution_ms:.2f}ms. Total fitness: {current_total_fitness} seconds. Convergence at iter: {max_convergence}")
-
-            # 5. GABUNGKAN HISTORY KONVERGENSI SELURUH KURIR (Padding Element-wise Sum)
-            # Jika Kurir A konvergen di iterasi 50 dan B di iterasi 100, nilai A akan di-pad (diperpanjang) 
-            # menggunakan nilai terbaik terakhirnya untuk dijumlahkan secara fair dengan B.
-            max_hist_len = max((len(h) for h in histories), default=0)
-            summed_history: list[float] = []
-            for i in range(max_hist_len):
-                sum_val = 0
-                for h in histories:
-                    if i < len(h):
-                        sum_val += h[i]
-                    else:
-                        sum_val += h[-1] if h else 0
-                summed_history.append(sum_val)
-
-            all_runs_payload.append(
-                TuningExperimentRunCreateSchema(
-                    convergence_iteration=max_convergence,
-                    execution_time_ms=execution_ms,
-                    fitness_score=current_total_fitness,
-                    it_max=config.it_max,
-                    tab_tenure=config.tab_tenure,
-                    it_cons=config.it_cons,
-                    it_div=config.it_div,
-                    tuning_experiment_id=None,
+                all_runs_payload.append(
+                    TuningExperimentRunCreateSchema(
+                        convergence_iteration=conv_iter,
+                        execution_time_ms=execution_ms,
+                        fitness_score=fitness,
+                        it_max=config.it_max,
+                        tab_tenure=config.tab_tenure,
+                        it_cons=config.it_cons,
+                        it_div=config.it_div,
+                        tuning_experiment_id=None,
+                    )
                 )
-            )
+                
+                log_msg = f"[EVAL {i:02d}/{len(configs)}] " \
+                          f"it_max:{config.it_max:<4} | tenure:{config.tab_tenure:<3} | cons:{config.it_cons:<3} | div:{config.it_div:<3} " \
+                          f"➜ Fit: {fitness:.2f}s | Conv at: {conv_iter} | Exec: {execution_ms:.0f}ms"
+                logger.info(log_msg)
 
-            if current_total_fitness < best_fitness:
-                logger.info(f"🌟 New best config found! Fitness improved from {best_fitness} to {current_total_fitness}")
-                best_fitness = current_total_fitness
-                best_result = TuningExperimentResult(
-                    config=config,
-                    fitness=current_total_fitness,
-                    route=routes_payload,
-                    execution_ms=execution_ms,
-                    convergence_iteration=max_convergence,
-                    history=summed_history,
+                if fitness < best_fitness:
+                    logger.info(f"🌟 [NEW BEST] Fitness membaik! {best_fitness if best_fitness != float('inf') else 'N/A'}s 📉 {fitness:.2f}s")
+                    best_fitness = fitness
+                    best_result = TuningExperimentResult(
+                        config=config,
+                        fitness=fitness,
+                        route={courier: assignment.tour},
+                        execution_ms=execution_ms,
+                        convergence_iteration=conv_iter,
+                        history=assignment.history,
+                    )
+
+            if best_result:
+                initial_fitness = best_result.history[0] if best_result.history else best_result.fitness
+                improvement_pct = ((initial_fitness - best_result.fitness) / initial_fitness * 100) if initial_fitness > 0 else 0.0
+
+                logger.info(f"[SAVING] Menyimpan hasil eksperimen terbaik Kurir {courier} (Peningkatan: {improvement_pct:.2f}%)...")
+
+                tuning_experiment = await self.tuning_experiment_repository.create_tuning_experiment(
+                    tuning_experiment=TuningExperimentCreateSchema(
+                        base_n_c=nc_courier,
+                        best_fitness_score=best_result.fitness,
+                        dataset_id=dataset.id.__str__(),
+                        it_max=best_result.config.it_max,
+                        tab_tenure=best_result.config.tab_tenure,
+                        it_cons=best_result.config.it_cons,
+                        it_div=best_result.config.it_div,
+                        best_route_payload=json.dumps(best_result.route),
+                        best_iteration_history_payload=json.dumps(best_result.history),
+                        completed_at=datetime.now(timezone.utc),
+                        convergence_iteration=best_result.convergence_iteration,
+                        execution_time_ms=best_result.execution_ms,
+                        early_stop_no_improvement_iterations=round(best_result.config.it_max * 0.2),
+                        improvement_percentage=improvement_pct,
+                        initial_fitness_score=initial_fitness,
+                        random_seed=42
+                    )
                 )
-
-        if not best_result:
-            logger.error("Grid search completed but no valid results were generated.")
-            raise Exception("No result generated for any configuration")
-        
-        logger.info(f"Grid search complete! Best fitness: {best_result.fitness}. Calculating improvement...")
-        
-        # Kalkulasi perbaikan fitness (Initial - Best) / Initial * 100
-        initial_fitness = best_result.history[0] if best_result.history else best_result.fitness
-        improvement_pct = ((initial_fitness - best_result.fitness) / initial_fitness * 100) if initial_fitness > 0 else 0.0
-
-        logger.info("Saving experiment results to database...")
-        tuning_experiment = await self.tuning_experiment_repository.create_tuning_experiment(
-            tuning_experiment=TuningExperimentCreateSchema(
-                base_n_c=total_unique_nodes,
-                best_fitness_score=best_result.fitness,
-                dataset_id=dataset.id.__str__(),
-                it_max=best_result.config.it_max,
-                tab_tenure=best_result.config.tab_tenure,
-                it_cons=best_result.config.it_cons,
-                it_div=best_result.config.it_div,
-                best_route_payload=json.dumps(best_result.route),
-                completed_at=datetime.now(timezone.utc),
-                convergence_iteration=best_result.convergence_iteration,
-                execution_time_ms=best_result.execution_ms,
-                early_stop_no_improvement_iterations=round(best_result.config.it_max * 0.2),
-                improvement_percentage=improvement_pct,
-                initial_fitness_score=initial_fitness,
-                random_seed=42
-            )
-        )
-        
-        for payload in all_runs_payload:
-            payload.tuning_experiment_id = tuning_experiment.id
-            
-        await self.tuning_experiment_run_repository.bulk_create_tuning_experiment_runs(
-            tuning_experiment_runs=all_runs_payload
-        )
-        
+                
+                for payload in all_runs_payload:
+                    payload.tuning_experiment_id = tuning_experiment.id
+                    
+                await self.tuning_experiment_run_repository.bulk_create_tuning_experiment_runs(
+                    tuning_experiment_runs=all_runs_payload
+                )
+                
+                logger.info(f"[COMPLETED] Seluruh proses tuning selesai! Status dataset diperbarui ke 'completed'.")
+                
         await self.tuning_experiment_dataset_repository.update_tuning_experiment_dataset_status(
             tuning_experiment_dataset_id=dataset.id.__str__(),
             new_status=TuningExperimentDatasetStatusEnum.completed
         )
         
-        logger.info(f"Successfully saved {len(all_runs_payload)} run configurations to database. Experiment {tuning_experiment.id} is finalized.")
+        logger.info(f"All couriers tuned successfully for dataset {dataset.id}.")
     
     def generate_grid_configs(self, nc: int) -> List[GridConfig]:
         it_max_options = [5 * nc, 10 * nc, 15 * nc]
-        tab_tenure_options = [max(1, math.floor(nc / 6)), max(1, math.floor(nc / 3)), max(1, math.floor(nc / 2))]
+        tab_tenure_options = [max(1, math.floor(nc / 6)), max(1, math.floor(nc / 3)), max(1, math.floor(nc / 2)), nc]
         it_cons_options = [max(1, math.floor(nc / 2)), nc, 2 * nc]
         it_div_options = [max(1, math.floor(nc / 10)), max(1, math.floor(nc / 5)), max(1, math.floor(nc / 2)), nc]
 

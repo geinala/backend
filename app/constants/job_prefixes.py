@@ -11,6 +11,7 @@ class JOB_PREFIXES_ENUM(str, Enum):
     TUNING_EXPERIMENT_JOB_CLEANING_DATA = JobType.TUNING.value + "-" + "tuning_experiment_clean_uploaded_rows"
     TUNING_EXPERIMENT_JOB_GEOCODING = JobType.TUNING.value + "-" + "tuning_experiment_geocoding"
     TUNING_EXPERIMENT_JOB_GET_RESULT = JobType.TUNING.value + "-" + "tuning_experiment_get_result"
+    TUNING_EXPERIMENT_JOB_CALIBRATE_PARAMETERS = JobType.TUNING.value + "-" + "tuning_experiment_calibrate_parameters"
     MATRIX_GENERATION = JobType.HEAVY.value + "-" + "matrix_generation"
     MATRIX_STATUS_CHECK = JobType.LIGHT.value + "-" + "matrix_status_check"
     MATRIX_RESULT_PROCESSING = JobType.HEAVY.value + "-" + "matrix_result_processing"
