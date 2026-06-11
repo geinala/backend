@@ -191,31 +191,31 @@ class SimulationProgressService:
         current_job: Job | None = None,
         traffic_congestion_threshold_seconds: int = settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS,
     ) -> bool:
-        logger.info(f"TESTING MODE: Force reoptimization for leg {next_route_leg['route_leg_id']}")
+        # logger.info(f"TESTING MODE: Force reoptimization for leg {next_route_leg['route_leg_id']}")
         
-        next_next_leg = self.route_repository.get_next_route_leg_after_sequence(
-            courier_route_id=arrival["courier_route_id"],
-            current_sequence=next_route_leg["sequence"],
-        )
-        is_last_leg = next_next_leg is None
+        # next_next_leg = self.route_repository.get_next_route_leg_after_sequence(
+        #     courier_route_id=arrival["courier_route_id"],
+        #     current_sequence=next_route_leg["sequence"],
+        # )
+        # is_last_leg = next_next_leg is None
 
-        enqueue_job(
-            dvrp_reoptimization_worker_process_congestion,
-            job_type=JobType.HEAVY,
-            job_prefix=JOB_PREFIXES_ENUM.DVRP_REOPTIMIZATION,
-            depends_on=current_job,
-            simulation_id=arrival["simulation_id"],
-            congestion_check_id=None,
-            route_leg_id=next_route_leg["route_leg_id"],
-            courier_route_id=arrival["courier_route_id"],
-            courier_id=arrival["courier_id"],
-            current_sequence=next_route_leg["sequence"],
-            delay_seconds=1,
-            force_duration_update_only=is_last_leg,  # Force duration update only for last leg to speed up testing
-            is_baseline=arrival["is_baseline"],
-        )
+        # enqueue_job(
+        #     dvrp_reoptimization_worker_process_congestion,
+        #     job_type=JobType.HEAVY,
+        #     job_prefix=JOB_PREFIXES_ENUM.DVRP_REOPTIMIZATION,
+        #     depends_on=current_job,
+        #     simulation_id=arrival["simulation_id"],
+        #     congestion_check_id=None,
+        #     route_leg_id=next_route_leg["route_leg_id"],
+        #     courier_route_id=arrival["courier_route_id"],
+        #     courier_id=arrival["courier_id"],
+        #     current_sequence=next_route_leg["sequence"],
+        #     delay_seconds=1,
+        #     force_duration_update_only=is_last_leg,  # Force duration update only for last leg to speed up testing
+        #     is_baseline=arrival["is_baseline"],
+        # )
         
-        return True
+        # return True
         
         route_points = decode_polyline(
             next_route_leg["encoded_polyline"],
