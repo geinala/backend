@@ -129,6 +129,8 @@ class ManualSolverService:
                 )
                 continue
 
+            total_courier_demand = sum(float(node.demand) for node in courier_nodes if getattr(node, 'demand', None) is not None)
+
             selected_node_indices = self._build_courier_node_indices(
                 simulation_id, courier_nodes, nodes_by_index
             )
@@ -143,7 +145,8 @@ class ManualSolverService:
             problem = ManualSolverProblem(
                 distance_matrix=[[float(x) for x in row] for row in distance_submatrix],
                 time_matrix=[[float(x) for x in row] for row in time_submatrix],
-                depot=0,
+                start_index=0,
+                end_index=0,
             )
 
             n_c = len(selected_node_indices) - 1
@@ -214,39 +217,35 @@ class ManualSolverService:
                 )
             ])
 
-            for solver_label, assignment in (
-                ("greedy", greedy_assignment),
-                ("tabu_search", tabu_assignment),
-            ):
-                route = self._parse_assignment(assignment, selected_node_indices, courier)
+            route = self._parse_assignment(tabu_assignment, selected_node_indices, courier)
 
-                solution = await self.solution_repository.insert_solution(
-                    CreateSolution(
-                        routes=route.tour,
-                        demand_in_kilograms=0.0,
-                        time_in_seconds=route.total_duration_in_seconds,
-                        courier_id=route.courier_id,
-                        simulation_id=simulation_id,
-                        distance_in_meters=route.total_distance_in_meters,
-                    )
+            solution = await self.solution_repository.insert_solution(
+                CreateSolution(
+                    routes=route.tour,
+                    demand_in_kilograms=total_courier_demand,
+                    time_in_seconds=route.total_duration_in_seconds,
+                    courier_id=route.courier_id,
+                    simulation_id=simulation_id,
+                    distance_in_meters=route.total_distance_in_meters,
+                )
+            )
+
+            if tabu_assignment.logs:
+                iterations = self._build_iteration_schemas(
+                    logs=tabu_assignment.logs,
+                    solution_id=solution.id,
+                    simulation_id=simulation_id,
+                    courier_id=solution.courier_id,
+                )
+                await self.optimization_iteration_repository.bulk_insert_optimization_iterations(
+                    iterations
+                )
+                logger.info(
+                    f"  [tabu_search] solution_id={solution.id} | "
+                    f"inserted {len(iterations)} iteration logs"
                 )
 
-                if assignment.logs:
-                    iterations = self._build_iteration_schemas(
-                        logs=assignment.logs,
-                        solution_id=solution.id,
-                        simulation_id=simulation_id,
-                        courier_id=solution.courier_id,
-                    )
-                    await self.optimization_iteration_repository.bulk_insert_optimization_iterations(
-                        iterations
-                    )
-                    logger.info(
-                        f"  [{solver_label}] solution_id={solution.id} | "
-                        f"inserted {len(iterations)} iteration logs"
-                    )
-
-                total_solutions_inserted += 1
+            total_solutions_inserted += 1
 
         if optimization_runs:
             self.optimization_run_repository.bulk_insert_optimization_runs(optimization_runs)
@@ -254,12 +253,12 @@ class ManualSolverService:
         await self.simulation_repository.update_simulation(
             simulation_id,
             UpdateSimulationSchema(
-                total_couriers=total_solutions_inserted // 2,
-                total_active_couriers=total_solutions_inserted // 2,
+                total_couriers=total_solutions_inserted,
+                total_active_couriers=total_solutions_inserted,
             ),
         )
         
-        total_unique_couriers = total_solutions_inserted // 2
+        total_unique_couriers = total_solutions_inserted
         if active_config and total_unique_couriers > 0:
             improvement_pct = 0.0
             if log_total_greedy_fitness > 0:
@@ -291,6 +290,9 @@ class ManualSolverService:
         courier: Courier,
     ) -> ParsedAssignment:
         global_tour = [selected_node_indices[local_idx] for local_idx in assignment.tour]
+
+        if len(global_tour) > 1 and global_tour[0] == 0 and global_tour[-1] != 0:
+            global_tour.append(0)
 
         return ParsedAssignment(
             courier_id=courier.id,

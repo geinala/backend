@@ -178,9 +178,10 @@ class TuningExperimentService:
                 )
                 
                 _, assignment = solver.solve(problem=ManualSolverProblem(
-                    depot=0,
                     time_matrix=[[float(x) for x in row] for row in time_matrix],
                     distance_matrix=[[float(x) for x in row] for row in distance_matrix],
+                    start_index=0,
+                    end_index=0,
                 ))
                 
                 if assignment is None:

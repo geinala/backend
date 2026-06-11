@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import UUID, Boolean, ForeignKey, Integer, String, DateTime, Enum, Float, func
+from sqlalchemy import UUID, Integer, String, DateTime, Enum, Float, func
 from datetime import datetime
 import enum
 
@@ -61,17 +61,8 @@ class SimulationJob(Base):
     depot_location_longitude: Mapped[float] = mapped_column(Float, nullable=False)
     algorithm: Mapped[OptimizationAlgorithmEnum] = mapped_column(Enum(OptimizationAlgorithmEnum, native_enum=False), nullable=False, default=OptimizationAlgorithmEnum.google_or_tools)
     computation_time_limit_in_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=600)
-    random_seed: Mapped[int] = mapped_column(Integer, nullable=False, default=42)
-    enable_resequence: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    enable_aspiration: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     resequence_improvement_threshold_percent: Mapped[float | None] = mapped_column(Float, nullable=True, default=5)
     congestion_delay_threshold_in_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True, default=300)
-    early_stop_no_improvement_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True, default=100)
-    tabu_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    tabu_tenure: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    max_neighbors_2opt: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    diversify_after_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    diversification_strength: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_demand_in_kilograms: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     total_couriers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_active_couriers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -22,17 +22,8 @@ class SimulationJobUpdateData(BaseModel):
     depot_location_longitude: float | None = None
     algorithm: OptimizationAlgorithmEnum | None = None
     computation_time_limit_in_seconds: int | None = None
-    random_seed: int | None = None
-    enable_resequence: bool | None = None
-    enable_aspiration: bool | None = None
     resequence_improvement_threshold_percent: float | None = None
     congestion_delay_threshold_in_seconds: int | None = None
-    early_stop_no_improvement_iterations: int | None = None
-    tabu_iterations: int | None = None
-    tabu_tenure: int | None = None
-    max_neighbors_2opt: int | None = None
-    diversify_after_iterations: int | None = None
-    diversification_strength: int | None = None
     total_demand_in_kilograms: float | None = None
     total_couriers: int | None = None
     total_active_couriers: int | None = None

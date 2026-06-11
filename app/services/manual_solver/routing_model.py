@@ -6,7 +6,7 @@ import random
 import time
 from collections import deque
 from datetime import datetime
-from typing import Deque, List, Tuple, Union
+from typing import Deque, List, Optional, Tuple, Union
 from typing_extensions import Unpack
 from .types import (
     Assignment, 
@@ -26,21 +26,39 @@ Candidate  = Tuple[float, MoveKey, List[int]]
 
 class RoutingModel:
     def __init__(self, problem: ManualSolverProblem) -> None:
-        distance_matrix = problem.distance_matrix
-        time_matrix = problem.time_matrix
-        depot = problem.depot
-
-        if len(distance_matrix) != len(time_matrix):
+        if len(problem.distance_matrix) != len(problem.time_matrix):
             raise ValueError("Distance matrix and time matrix must be of the same size.")
-        if len(distance_matrix) < 2:
+        
+        if len(problem.distance_matrix) < 2:
             raise ValueError("Matrices must be at least 2×2 in size.")
+        
+        self.problem = problem
+        
+        self.original_distance_matrix = problem.distance_matrix
+        self.original_time_matrix = problem.time_matrix
+        
+        self.distance_matrix = [row[:] for row in problem.distance_matrix]
+        self.time_matrix = [row[:] for row in problem.time_matrix]
+        
+        self.num_nodes = len(self.distance_matrix)
+        
+        if problem.start_index is not None and problem.end_index is not None:
+            BIG_M = 999_999_999.0
             
-        self.distance_matrix = distance_matrix
-        self.time_matrix = time_matrix
-        self.num_nodes = len(distance_matrix)
-        self.depot = depot
+            for i in range(self.num_nodes):
+                if i != problem.start_index:
+                    self.distance_matrix[problem.end_index][i] = BIG_M
+                    self.time_matrix[problem.end_index][i] = BIG_M
+                if i != problem.end_index:
+                    self.distance_matrix[i][problem.start_index] = BIG_M
+                    self.time_matrix[i][problem.start_index] = BIG_M
+            
+            self.distance_matrix[problem.end_index][problem.start_index] = 0.0
+            self.time_matrix[problem.end_index][problem.start_index] = 0.0
 
     def SolveWithParameters(self, params: RoutingSearchParameters) -> Assignment:
+        self.params = params
+        
         if params.optimization_target == "distance":
             self.cost_matrix = self.distance_matrix
         else:
@@ -54,9 +72,17 @@ class RoutingModel:
         return self._solve_greedy(params)
 
     def _get_metrics(self, tour: List[int]) -> Tuple[float, float, float]:
-        cost = _tour_cost(tour, self.cost_matrix)
-        dist = _tour_cost(tour, self.distance_matrix)
-        time_val = _tour_cost(tour, self.time_matrix)
+        original_cost_matrix = self.original_time_matrix if self.params.optimization_target == "time" else self.original_distance_matrix
+        
+        cost = _tour_cost(tour, original_cost_matrix)
+        dist = _tour_cost(tour, self.original_distance_matrix)
+        time_val = _tour_cost(tour, self.original_time_matrix)
+        
+        if self.problem.start_index is not None and self.problem.end_index is not None:
+            cost -= original_cost_matrix[tour[-1]][tour[0]]
+            dist -= self.original_distance_matrix[tour[-1]][tour[0]]
+            time_val -= self.original_time_matrix[tour[-1]][tour[0]]
+            
         return cost, dist, time_val
 
     # Helper function untuk membuat object log dengan nilai default TSP
@@ -87,7 +113,7 @@ class RoutingModel:
             else:
                 best_tour, algo_name = tour_ge, "Greedy Edge (Auto)"
 
-        best_tour = _rotate_to_depot(best_tour, self.depot)
+        best_tour = _rotate_to_start(best_tour, self.problem.start_index)
         best_cost, best_dist, best_time = self._get_metrics(best_tour)
         
         logs.append(self._create_event(
@@ -105,7 +131,7 @@ class RoutingModel:
             best_tour, iters = _two_opt_improve(
                 best_tour, self.cost_matrix, params.max_improvement_iterations, t0, params.max_execution_time_seconds
             )
-            best_tour = _rotate_to_depot(best_tour, self.depot)
+            best_tour = _rotate_to_start(best_tour, self.problem.start_index)
             best_cost, best_dist, best_time = self._get_metrics(best_tour)
             algo_name += " + 2-opt"
             
@@ -277,15 +303,14 @@ class RoutingModel:
                     message = "Progress update (iteration 10): Search proceeding as expected."
                 ))
 
-        best_tour = _rotate_to_depot(best_tour, self.depot)
+        best_tour = _rotate_to_start(best_tour, self.problem.start_index)
 
-        # Tahap Reoptimization
         if params.local_improvement_strategy == LocalImprovementStrategy.TWO_OPT:
             prev_cost, prev_dist, prev_time = best_cost, best_dist, best_time
             best_tour, two_opt_iters = _two_opt_improve(
                 best_tour, self.cost_matrix, params.max_improvement_iterations, t0, params.max_execution_time_seconds
             )
-            best_tour = _rotate_to_depot(best_tour, self.depot)
+            best_tour = _rotate_to_start(best_tour, self.problem.start_index)
             iters_run += two_opt_iters
             best_cost, best_dist, best_time = self._get_metrics(best_tour)
             
@@ -329,9 +354,9 @@ def _tour_cost(tour: List[int], matrix: List[List[float]]) -> float:
     n = len(tour)
     return sum(matrix[tour[i]][tour[(i + 1) % n]] for i in range(n))
 
-def _rotate_to_depot(tour: List[int], depot: int) -> List[int]:
-    if depot not in tour: return tour
-    idx = tour.index(depot)
+def _rotate_to_start(tour: List[int], start_index: Optional[int]) -> List[int]:
+    if start_index is None or start_index not in tour: return tour
+    idx = tour.index(start_index)
     return tour[idx:] + tour[:idx]
 
 def _normalize_move_key(move_key: MoveKey) -> MoveKey:

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     UUID,
-    Boolean,
     DateTime,
     Enum,
     Float,
@@ -44,17 +43,8 @@ class Simulation(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     algorithm: Mapped[OptimizationAlgorithmEnum] = mapped_column(Enum(OptimizationAlgorithmEnum, native_enum=False), nullable=False)
     computation_time_limit_in_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=600)
-    random_seed: Mapped[int] = mapped_column(Integer, nullable=False, default=42)
-    enable_resequence: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    enable_aspiration: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     resequence_improvement_threshold_percent: Mapped[float | None] = mapped_column(Float, nullable=True, default=5)
     congestion_delay_threshold_in_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True, default=300)
-    early_stop_no_improvement_iterations: Mapped[int | None] = mapped_column(       Integer, nullable=True, default=100)
-    tabu_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    tabu_tenure: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    max_neighbors_2opt: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    diversify_after_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    diversification_strength: Mapped[int | None] = mapped_column(Integer, nullable=True)
     depot_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     depot_location_address: Mapped[str] = mapped_column(String, nullable=False)
     depot_location_latitude: Mapped[float] = mapped_column(Float, nullable=False)

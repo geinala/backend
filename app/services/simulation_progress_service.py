@@ -40,6 +40,7 @@ from app.workers.events_worker import (
 logger = get_logger(__name__)
 CONGESTION_CHECK_DELAY_SECONDS = 5
 settings = get_environment_configuration()
+
 class SimulationProgressService:
     def __init__(
         self,
@@ -79,7 +80,8 @@ class SimulationProgressService:
             
             logger.info(f"Due arrivals fetched: {json.dumps(due_arrivals, default=str)}")
 
-            transitioned_arrivals: list[tuple[DueArrivalEvent, bool]] = []
+            # Menyimpan tuple dengan struktur: (arrival, has_next_leg, reopt_queued)
+            transitioned_arrivals: list[tuple[DueArrivalEvent, bool, bool]] = []
             current_job: Job | None = get_current_job()
 
             for arrival in due_arrivals:
@@ -94,36 +96,43 @@ class SimulationProgressService:
                         completed_at=datetime.now(timezone.utc),
                     )
 
-                has_next_leg = self.route_repository.promote_next_route_leg_to_in_progress(
+                # ==========================================================
+                # CEK KEMACETAN DULU SEBELUM KURIR DISURUH JALAN
+                # ==========================================================
+                next_route_leg = self.route_repository.get_next_route_leg_after_sequence(
                     courier_route_id=arrival["courier_route_id"],
                     current_sequence=arrival["sequence"],
-                    is_baseline=arrival["is_baseline"],
                 )
+                
+                has_next_leg = next_route_leg is not None
+                reopt_queued = False
 
-                next_route_leg = None
-                if has_next_leg:
-                    next_route_leg = self.route_repository.get_next_route_leg_after_sequence(
-                        courier_route_id=arrival["courier_route_id"],
-                        current_sequence=arrival["sequence"],
+                if has_next_leg and next_route_leg is not None:
+                    reopt_queued = self._process_next_route_leg(
+                        arrival, 
+                        next_route_leg, 
+                        current_job=current_job, 
+                        traffic_congestion_threshold_seconds=arrival["congestion_delay_threshold_in_seconds"]
                     )
 
-                    if next_route_leg is not None:
-                        self._process_next_route_leg(
-                            arrival, 
-                            next_route_leg, 
-                            current_job=current_job, 
-                            traffic_congestion_threshold_seconds=arrival["congestion_delay_threshold_in_seconds"]
-                        )
+                # HANYA jadikan route leg selanjutnya in-progress jika TIDAK ADA reoptimisasi yang masuk antrean
+                if has_next_leg and not reopt_queued:
+                    self.route_repository.promote_next_route_leg_to_in_progress(
+                        courier_route_id=arrival["courier_route_id"],
+                        current_sequence=arrival["sequence"],
+                        is_baseline=arrival["is_baseline"],
+                    )
 
                 self.simulation_repository.apply_arrival_progress(
                     simulation_id=arrival["simulation_id"],
                     has_next_leg=has_next_leg,
                     is_baseline=arrival["is_baseline"],
                 )
-                transitioned_arrivals.append((arrival, has_next_leg))
+                
+                transitioned_arrivals.append((arrival, has_next_leg, reopt_queued))
 
             emitted_count = 0
-            for arrival, has_next_leg in transitioned_arrivals:
+            for arrival, has_next_leg, reopt_queued in transitioned_arrivals:
                 if arrival["node_id"] < 0:
                     continue
                 
@@ -139,12 +148,14 @@ class SimulationProgressService:
                 )
 
                 if has_next_leg:
-                    emit_vehicle_departed_node_event(
-                        simulation_id=arrival["simulation_id"],
-                        courier_route_id=arrival["courier_route_id"],
-                        courier_id=arrival["courier_id"],
-                        node_id=arrival["node_id"],
-                    )
+                    # TAHAN EVENT KE FRONTEND JIKA REOPTIMISASI MASUK ANTREAN
+                    if not reopt_queued:
+                        emit_vehicle_departed_node_event(
+                            simulation_id=arrival["simulation_id"],
+                            courier_route_id=arrival["courier_route_id"],
+                            courier_id=arrival["courier_id"],
+                            node_id=arrival["node_id"],
+                        )
                 else:
                     emit_vehicle_returned_to_depot_event(
                         simulation_id=arrival["simulation_id"],
@@ -179,7 +190,33 @@ class SimulationProgressService:
         next_route_leg: NextRouteLegSnapshot,
         current_job: Job | None = None,
         traffic_congestion_threshold_seconds: int = settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS,
-    ) -> None:
+    ) -> bool:
+        logger.info(f"TESTING MODE: Force reoptimization for leg {next_route_leg['route_leg_id']}")
+        
+        next_next_leg = self.route_repository.get_next_route_leg_after_sequence(
+            courier_route_id=arrival["courier_route_id"],
+            current_sequence=next_route_leg["sequence"],
+        )
+        is_last_leg = next_next_leg is None
+
+        enqueue_job(
+            dvrp_reoptimization_worker_process_congestion,
+            job_type=JobType.HEAVY,
+            job_prefix=JOB_PREFIXES_ENUM.DVRP_REOPTIMIZATION,
+            depends_on=current_job,
+            simulation_id=arrival["simulation_id"],
+            congestion_check_id=None,
+            route_leg_id=next_route_leg["route_leg_id"],
+            courier_route_id=arrival["courier_route_id"],
+            courier_id=arrival["courier_id"],
+            current_sequence=next_route_leg["sequence"],
+            delay_seconds=1,
+            force_duration_update_only=is_last_leg,  # Force duration update only for last leg to speed up testing
+            is_baseline=arrival["is_baseline"],
+        )
+        
+        return True
+        
         route_points = decode_polyline(
             next_route_leg["encoded_polyline"],
             next_route_leg["encoded_polyline_precision"],
@@ -373,6 +410,7 @@ class SimulationProgressService:
                 force_duration_update_only=force_duration_update_only,
                 is_baseline=arrival["is_baseline"],
             )
+            return True
         else:
             logger.info(
                 {
@@ -386,6 +424,7 @@ class SimulationProgressService:
                     "incident_match_debugs": incident_match_debugs,
                 }
             )
+            return False
 
     def _build_incident_match_debug(
         self,

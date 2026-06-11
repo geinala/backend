@@ -112,7 +112,7 @@ class RouteService:
                         origin_longitude=origin_node.longitude,
                         destination_latitude=destination_node.latitude,
                         destination_longitude=destination_node.longitude,
-                        sequence=seq,
+                        sequence=seq + 1, 
                         encoded_polyline=leg["encodedPolyline"],
                         encoded_polyline_precision=leg["encodedPolylinePrecision"],
                         distance_in_meters=summary["lengthInMeters"],
@@ -126,7 +126,7 @@ class RouteService:
                         live_traffic_incidents_travel_time_in_seconds=summary["liveTrafficIncidentsTravelTimeInSeconds"],
                         route_status=(
                             RouteStatusEnum.running
-                            if seq == 0
+                            if seq == 0 
                             else RouteStatusEnum.planned
                         )
                     )

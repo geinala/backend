@@ -6,12 +6,14 @@ from rq import get_current_job
 from app.lib.db import get_db
 from app.lib.logging.logging import get_logger
 from app.repositories.courier_route_repository import CourierRouteRepository
+from app.repositories.daily_optimization_log_repository import DailyOptimizationLogRepository
 from app.repositories.node_repository import NodeRepository
 from app.repositories.optimization_run_repository import OptimizationRunRepository
 from app.repositories.route_repository import RouteRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.repositories.matrix_repository import MatrixRepository
 from app.repositories.solution_repository import SolutionRepository
+from app.repositories.tabu_search_configuration_repository import TabuSearchConfigurationRepository
 from app.services.dvrp_reoptimization_service import DVRPReoptimizationService
 from app.services.matrix_service import MatrixService
 from app.services.tomtom_service import TomTomService
@@ -59,6 +61,8 @@ async def _process_congestion_reoptimization(
             optimization_run_repository=OptimizationRunRepository(db),
             courier_route_repository=CourierRouteRepository(db),
             solution_repository=SolutionRepository(db),
+            tabu_search_configuration_repository=TabuSearchConfigurationRepository(db),
+            daily_optimization_log_repository=DailyOptimizationLogRepository(db),
         )
 
         wide_event["stage"] = "reoptimizing"

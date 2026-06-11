@@ -1,9 +1,8 @@
-from typing import Literal
-
 from app.services.manual_solver.base import BaseManualSolverStrategy
 from app.services.manual_solver.types import (
     ManualSolverProblem,
     Assignment,
+    OptimizationTarget,
     RoutingSearchParameters,
     FirstSolutionStrategy,
     LocalSearchMetaheuristic,
@@ -37,7 +36,7 @@ class GreedySolver(BaseManualSolverStrategy):
         self,
         *,
         first_solution_strategy: FirstSolutionStrategy = FirstSolutionStrategy.AUTOMATIC,
-        optimization_target: str = "time",
+        optimization_target: OptimizationTarget = "time",
         use_two_opt: bool = False,
         max_improvement_iterations: int = 1000,
         max_execution_time_seconds: float = 30.0,
@@ -69,7 +68,7 @@ class TabuSearchSolver(BaseManualSolverStrategy):
         self,
         *,
         first_solution_strategy: FirstSolutionStrategy = FirstSolutionStrategy.AUTOMATIC,
-        optimization_target: Literal["time", "distance"] = "time",
+        optimization_target: OptimizationTarget = "time",
         max_local_search_iterations: int = 500,
         max_execution_time_seconds: float = 60.0,
         early_stop_no_improvement_iterations: int = 150,

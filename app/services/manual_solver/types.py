@@ -5,6 +5,8 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Literal, Optional, TypedDict
 
+OptimizationTarget = Literal["time", "distance"]
+ComparisonScenario = Literal["no_improvement", "with_improvement"]
 
 class OptimizationEvent(TypedDict, total=False):
     event_type: str
@@ -63,7 +65,7 @@ class RoutingSearchParameters:
     first_solution_strategy: FirstSolutionStrategy = FirstSolutionStrategy.AUTOMATIC
     local_search_metaheuristic: LocalSearchMetaheuristic = LocalSearchMetaheuristic.TABU_SEARCH
     local_improvement_strategy: LocalImprovementStrategy = LocalImprovementStrategy.NONE
-    optimization_target: str = "time"  # "time" atau "distance"
+    optimization_target: OptimizationTarget = "time"  # "time" atau "distance"
     max_local_search_iterations: int = 500
     max_improvement_iterations: int = 1000
     max_execution_time_seconds: float = 60.0
@@ -86,6 +88,6 @@ class RoutingSearchParameters:
 class ManualSolverProblem:
     distance_matrix: List[List[float]]
     time_matrix: List[List[float]]
-    depot: int = 0
+    start_index: Optional[int] = 0
+    end_index: Optional[int] = 0
     
-ComparisonScenario = Literal["no_improvement", "with_improvement"]
