@@ -15,8 +15,10 @@ from app.repositories.matrix_repository import MatrixRepository
 from app.repositories.solution_repository import SolutionRepository
 from app.repositories.tabu_search_configuration_repository import TabuSearchConfigurationRepository
 from app.services.dvrp_reoptimization_service import DVRPReoptimizationService
+from app.services.manual_solver.solver_execution_service import SolverExecutionService
 from app.services.matrix_service import MatrixService
 from app.services.tomtom_service import TomTomService
+from app.workers.events_worker import emit_reoptimization_triggered_event
 
 logger = get_logger(__name__)
 
@@ -31,6 +33,7 @@ async def _process_congestion_reoptimization(
     congestion_check_id: int | None = None,
     force_duration_update_only: bool = False,
     is_baseline: bool = False,
+    resequence_improvement_threshold_percent: float = 0.0,
 ):
     job = get_current_job()
     start_time = time.time()
@@ -63,6 +66,7 @@ async def _process_congestion_reoptimization(
             solution_repository=SolutionRepository(db),
             tabu_search_configuration_repository=TabuSearchConfigurationRepository(db),
             daily_optimization_log_repository=DailyOptimizationLogRepository(db),
+            solver_execution_service=SolverExecutionService(),
         )
 
         wide_event["stage"] = "reoptimizing"
@@ -76,9 +80,18 @@ async def _process_congestion_reoptimization(
             delay_seconds=delay_seconds,
             force_duration_update_only=force_duration_update_only,
             is_baseline=is_baseline,
+            resequence_improvement_threshold_percent=resequence_improvement_threshold_percent,
         )
 
         db.commit()
+
+        # Send event bahwa reoptimisasi dengan perubahan rute telah diterapkan
+        emit_reoptimization_triggered_event(
+            courier_id=courier_id,
+            reason=result.get("outcome"),
+            simulation_id=simulation_id,
+        )
+
         wide_event["status"] = "success"
         wide_event["outcome"] = result.get("outcome")
         wide_event["duration_ms"] = (time.time() - start_time) * 1000
@@ -107,6 +120,7 @@ def process_congestion_reoptimization(
     congestion_check_id: int | None = None,
     force_duration_update_only: bool = False,
     is_baseline: bool = False,
+    resequence_improvement_threshold_percent: float = 0.0,
 ):
     return asyncio.run(
         _process_congestion_reoptimization(
@@ -119,5 +133,6 @@ def process_congestion_reoptimization(
             congestion_check_id=congestion_check_id,
             force_duration_update_only=force_duration_update_only,
             is_baseline=is_baseline,
+            resequence_improvement_threshold_percent=resequence_improvement_threshold_percent,
         )
     )

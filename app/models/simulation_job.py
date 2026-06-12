@@ -40,11 +40,6 @@ class SimulationJobFileCleaningStatusEnum(enum.Enum):
     completed = 'completed'
     needed_review = 'needed_review'
     failed = 'failed'
-    
-class OptimizationAlgorithmEnum(enum.Enum):
-    manual_without_optimization = "manual_without_optimization"
-    manual_with_optimization = "manual_with_optimization"
-    google_or_tools = "google_or_tools"
 
 class SimulationJob(Base):
     __tablename__ = "simulation_jobs"
@@ -59,8 +54,7 @@ class SimulationJob(Base):
     depot_location_address: Mapped[str] = mapped_column(String, nullable=False)
     depot_location_latitude: Mapped[float] = mapped_column(Float, nullable=False)
     depot_location_longitude: Mapped[float] = mapped_column(Float, nullable=False)
-    algorithm: Mapped[OptimizationAlgorithmEnum] = mapped_column(Enum(OptimizationAlgorithmEnum, native_enum=False), nullable=False, default=OptimizationAlgorithmEnum.google_or_tools)
-    computation_time_limit_in_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=600)
+    is_with_adaptive_parameters: Mapped[bool] = mapped_column(nullable=False, default=False)
     resequence_improvement_threshold_percent: Mapped[float | None] = mapped_column(Float, nullable=True, default=5)
     congestion_delay_threshold_in_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True, default=300)
     total_demand_in_kilograms: Mapped[float] = mapped_column(Float, nullable=False, default=0)

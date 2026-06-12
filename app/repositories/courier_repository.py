@@ -7,10 +7,10 @@ class CourierRepository:
     def __init__(self, db: Session):
         self.db = db
         
-    def get_couriers_by_simulation_id(self, simulation_id: str):
+    def get_couriers_by_simulation_id(self, simulation_id: str) -> list[Courier]:
         return self.db.query(Courier).filter_by(simulation_id=simulation_id).all()
 
-    def get_all_active_couriers_by_simulation_id(self, simulation_id: str):
+    def get_all_active_couriers_by_simulation_id(self, simulation_id: str) -> list[Courier]:
         return self.db.query(Courier).filter_by(simulation_id=simulation_id, is_active=True).all()
 
     def bulk_insert_couriers(self, couriers: list[CreateCourier]):

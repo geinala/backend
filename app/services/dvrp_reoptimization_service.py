@@ -1,5 +1,4 @@
 from __future__ import annotations
-import asyncio
 import math
 from datetime import datetime, timezone
 import json
@@ -30,15 +29,13 @@ from app.schemas.route_schema import CreateRouteLeg
 from app.schemas.simulation_log_schema import CreateSimulationLog
 from app.schemas.simulation_schema import UpdateSimulationSchema
 from app.schemas.solution_schema import CreateSolution
+from app.services.manual_solver.solver_execution_service import SolverExecutionService
 from app.services.matrix_service import MatrixService
-from app.services.or_tools_solver import GreedySolver, SolverProblem, TabuSearchSolver
 from app.services.manual_solver.manual_solver import GreedySolver as ManualGreedySolver, TabuSearchSolver as ManualTabuSearchSolver
-from app.services.manual_solver.types import ManualSolverProblem, FirstSolutionStrategy
+from app.services.manual_solver.types import ManualSolverProblem
 from app.services.tomtom_service import TomTomService
 from app.models.node import Node
 from app.lib.date_converter import format_departure_time
-from app.models.simulation_job import OptimizationAlgorithmEnum
-from app.models.tabu_search_configuration import TabuSearchConfiguration
 
 logger = get_logger(__name__)
 
@@ -65,11 +62,7 @@ class TomTomRoute(TypedDict):
 class TomTomResponse(TypedDict):
     routes: list[TomTomRoute]
 
-AlgorithmLiteral = Literal[
-    "greedy_or_tools", "tabu_search_or_tools",
-    "greedy_with_2opt", "greedy_without_2opt",
-    "tabu_search_with_2opt", "tabu_search_without_2opt"
-]
+AlgorithmLiteral = Literal["greedy", "tabu_search"]
 
 class CandidatePlan(TypedDict):
     algorithm: AlgorithmLiteral
@@ -124,7 +117,8 @@ class DVRPReoptimizationService:
         courier_route_repository: CourierRouteRepository,
         solution_repository: SolutionRepository,
         tabu_search_configuration_repository: TabuSearchConfigurationRepository,
-        daily_optimization_log_repository: DailyOptimizationLogRepository
+        daily_optimization_log_repository: DailyOptimizationLogRepository,
+        solver_execution_service: SolverExecutionService
     ):
         self.settings = get_environment_configuration()
         self.route_repository = route_repository
@@ -137,20 +131,7 @@ class DVRPReoptimizationService:
         self.solution_repository = solution_repository
         self.tabu_search_configuration_repository = tabu_search_configuration_repository
         self.daily_optimization_log_repository = daily_optimization_log_repository
-
-    def _get_algorithm_names(self, algorithm_enum: OptimizationAlgorithmEnum) -> tuple[AlgorithmLiteral, AlgorithmLiteral]:
-        if algorithm_enum == OptimizationAlgorithmEnum.google_or_tools:
-            return "greedy_or_tools", "tabu_search_or_tools"
-        
-        use_two_opt = algorithm_enum in [
-            getattr(OptimizationAlgorithmEnum, "manual_with_optimization", None),
-            getattr(OptimizationAlgorithmEnum, "manual_with_improvement", None)
-        ]
-        
-        if use_two_opt:
-            return "greedy_with_2opt", "tabu_search_with_2opt"
-        
-        return "greedy_without_2opt", "tabu_search_without_2opt"
+        self.solver_execution_service = solver_execution_service
 
     async def handle_congestion(
         self,
@@ -161,6 +142,7 @@ class DVRPReoptimizationService:
         courier_id: int,
         current_sequence: int,
         delay_seconds: int,
+        resequence_improvement_threshold_percent: float,
         congestion_check_id: int | None = None,
         force_duration_update_only: bool = False,
         is_baseline: bool,
@@ -204,28 +186,20 @@ class DVRPReoptimizationService:
                 f"Destination matrix index {destination_node.matrix_index} is missing from courier route {courier_route_id}."
             )
 
-        # ==============================================================================
-        # --- PERBAIKAN 1: LOGIKA SLICING ROUTE YANG LEBIH AMAN ---
-        # ==============================================================================
         origin_idx = current_sequence - 1
         
         if origin_idx >= len(route_node_indices):
             origin_idx = len(route_node_indices) - 1
 
-        # Ambil node yang SUDAH dilewati
         visited_node_indices = route_node_indices[:origin_idx + 1]
         
-        # Sisa rute di depan origin
         nodes_after_origin = route_node_indices[origin_idx + 1:]
         
-        # Bersihkan dari destination_node dan 0 (agar tak duplikat di tengah)
         remaining_node_indices = [
             n for n in nodes_after_origin 
             if n != destination_node.matrix_index and n != 0
         ]
-        # ==============================================================================
-        
-        # TAMBAHKAN LOG INI: Cek status pemotongan array
+
         logger.info({
             "event_type": "DEBUG_ROUTE_SLICING",
             "courier_route_id": courier_route_id,
@@ -261,8 +235,6 @@ class DVRPReoptimizationService:
 
         self.route_repository.update_route_leg_delay(route_leg_id, delay_seconds)
 
-        greedy_name, tabu_name = self._get_algorithm_names(simulation.algorithm)
-
         should_update_duration_only = (
             force_duration_update_only
             or not remaining_node_indices
@@ -283,8 +255,6 @@ class DVRPReoptimizationService:
                 after_total_time_in_seconds=baseline_with_delay_total_time_in_seconds,
                 courier_id=courier_id,
                 is_baseline=is_baseline,
-                greedy_algo=greedy_name,
-                tabu_algo=tabu_name,
             )
             return await self._finalize_reoptimization(
                 simulation_id=simulation_id,
@@ -322,12 +292,13 @@ class DVRPReoptimizationService:
 
         logger.info(f"Generating live submatrix from TomTom for {len(selected_nodes)} nodes...")
         
-        submatrix = await self.matrix_service.generate_live_submatrix_for_reoptimization(
+        time_matrix, distance_matrix = await self.matrix_service.generate_live_distance_matrix_and_time_matrix(
             nodes=selected_nodes,
             departure_time=reoptimization_departure_time
         )
-        distance_matrix = await self.matrix_service.build_distance_matrix(simulation_id)
-        distance_submatrix = self._build_submatrix(distance_matrix, selected_node_indices)
+            
+        logger.info(f"Time matrix after TomTom generation: {time_matrix}")
+        
         demands = [
             0,
             *[
@@ -337,93 +308,60 @@ class DVRPReoptimizationService:
             0,
         ]
         
-        tabu_search_active_config: TabuSearchConfiguration | None = None
+        tabu_search_active_config = await self.tabu_search_configuration_repository.get_active_tabu_search_configuration()
 
         courier = self.route_repository.db.query(Courier).filter(Courier.id == courier_id).first()
         if courier is None:
             raise ValueError(f"Courier {courier_id} could not be loaded.")
-
-        if simulation.algorithm == OptimizationAlgorithmEnum.google_or_tools:
-            problem = SolverProblem(
-                time_matrix=submatrix,
-                demands=demands,
-                courier=courier,
-                start_index=0,
-                end_index=len(selected_node_indices) - 1,
-            )
-
-            greedy_task = asyncio.to_thread(
-                self._run_or_tools_solver_only, greedy_name, GreedySolver(), problem, selected_node_indices
-            )
-            tabu_task = asyncio.to_thread(
-                self._run_or_tools_solver_only, tabu_name, TabuSearchSolver(), problem, selected_node_indices
-            )
-        else:
-            manual_problem = ManualSolverProblem(
-                distance_matrix=[[float(x) for x in row] for row in distance_submatrix],
-                time_matrix=[[float(x) for x in row] for row in submatrix],
-                start_index=0,
-                end_index=len(selected_node_indices) - 1,
-            )
-            
-            use_two_opt = greedy_name == "greedy_with_2opt"
-            
-            manual_greedy = ManualGreedySolver(
-                first_solution_strategy=FirstSolutionStrategy.NEAREST_NEIGHBOR,
-                use_two_opt=use_two_opt
-            )
-            
-            tabu_search_active_config = await self.tabu_search_configuration_repository.get_active_tabu_search_configuration()
-            
-            if not tabu_search_active_config:
-                logger.warning("No active Tabu Search config found! Using paper default coefficients.")
-                it_max_mult = 10.0
-                tab_ten_div = 3.0
-                it_cons_mult = 1.0
-                it_div_div = 5.0
-            else:
-                it_max_mult = tabu_search_active_config.it_max_multiplier
-                tab_ten_div = tabu_search_active_config.tab_tenure_divider
-                it_cons_mult = tabu_search_active_config.it_cons_multiplier
-                it_div_div = tabu_search_active_config.it_div_divider
-            
-            n_c = len(selected_node_indices) - 1
-            it_max = max(1, round(it_max_mult * n_c))
-            tabu_tenure = max(1, math.floor(n_c / tab_ten_div)) if tab_ten_div > 0 else 1
-            it_cons = round(it_cons_mult * n_c)
-            it_div = max(1, math.floor(n_c / it_div_div)) if it_div_div > 0 else 1
-            
-            manual_tabu = ManualTabuSearchSolver(
-                first_solution_strategy=FirstSolutionStrategy.NEAREST_NEIGHBOR,
-                use_two_opt_post=use_two_opt,
-                max_local_search_iterations=it_max,
-                early_stop_no_improvement_iterations=round(it_max * 0.2),
-                tabu_tenure=tabu_tenure,
-                diversify_after_iterations=it_cons,
-                diversification_strength=it_div,
-                optimization_target="time",
-                track_iteration_history=False,
-                save_intermediate_solutions=False,
-            )
-            
-            greedy_task = asyncio.to_thread(
-                self._run_manual_solver_only, greedy_name, manual_greedy, manual_problem, selected_node_indices
-            )
-            tabu_task = asyncio.to_thread(
-                self._run_manual_solver_only, tabu_name, manual_tabu, manual_problem, selected_node_indices
-            )
-
-        greedy_result, tabu_result = await asyncio.gather(greedy_task, tabu_task)
         
-        def deduplicate_consecutive(route: list[int]) -> list[int]:
+        n_c = len(selected_node_indices) - 1 if simulation.is_with_adaptive_parameters else len(route_node_indices) - 1
+        
+        logger.info(f"Running solvers for reoptimization with {n_c} nodes in the problem...")
+        
+        solver_result = await self.solver_execution_service.run(
+            distance_matrix=[[float(x) for x in row] for row in distance_matrix],
+            time_matrix=[[float(x) for x in row] for row in time_matrix],
+            start_index=0,
+            end_index=len(selected_node_indices) - 1,
+            n_nodes=n_c,
+            tabu_config=tabu_search_active_config,
+        )
+        
+        def process_solver_tour(tour: list[int]) -> list[int]:
+            mapped_route = [selected_node_indices[local_idx] for local_idx in tour]
+
+            clean_route: list[int] = []
+            for i, node_idx in enumerate(mapped_route):
+                if node_idx == 0 and i != 0:
+                    continue
+                clean_route.append(node_idx)
+
+            if len(clean_route) > 1 and clean_route[-1] != 0:
+                clean_route.append(0)
+
             clean: list[int] = []
-            for n in route:
+            for n in clean_route:
                 if not clean or clean[-1] != n:
                     clean.append(n)
             return clean
         
-        greedy_result["route_nodes"] = deduplicate_consecutive(greedy_result["route_nodes"])
-        tabu_result["route_nodes"] = deduplicate_consecutive(tabu_result["route_nodes"])
+        greedy_route_nodes = process_solver_tour(solver_result.greedy_assignment.tour)
+        tabu_route_nodes = process_solver_tour(solver_result.tabu_assignment.tour)
+        greedy_result: SolverResult = {
+            "algorithm": "greedy",
+            "route_nodes": greedy_route_nodes,
+            "internal_time_in_seconds": solver_result.greedy_assignment.total_duration_in_seconds,
+            "computation_time_in_ms": solver_result.greedy_time_ms,
+            "nodes_explored": len(greedy_route_nodes),
+        }
+
+        tabu_result: SolverResult = {
+            "algorithm": "tabu_search",
+            "route_nodes": tabu_route_nodes,
+            "internal_time_in_seconds": solver_result.tabu_assignment.total_duration_in_seconds,
+            "computation_time_in_ms": solver_result.tabu_time_ms,
+            "nodes_explored": len(tabu_route_nodes),
+        }
         
         if tabu_search_active_config:
             greedy_fitness = greedy_result["internal_time_in_seconds"]
@@ -460,11 +398,14 @@ class DVRPReoptimizationService:
             route_points, depart_at=format_departure_time(reoptimization_departure_time)
         ))
         tabu_summary = route_response["routes"][0]["summary"]
+        
+        global_to_local_idx = {matrix_idx: local_idx for local_idx, matrix_idx in enumerate(selected_node_indices)}
+        local_greedy_route = [global_to_local_idx[node_idx] for node_idx in greedy_result["route_nodes"]]
 
-        greedy_distance = self._calculate_route_distance(greedy_result["route_nodes"], distance_matrix)
+        greedy_distance = self._calculate_route_distance(local_greedy_route, distance_matrix)
 
         greedy_plan: CandidatePlan = {
-            "algorithm": greedy_name,
+            "algorithm": "greedy",
             "route": greedy_result["route_nodes"],
             "computation_time_in_ms": greedy_result["computation_time_in_ms"],
             "nodes_explored": greedy_result["nodes_explored"],
@@ -477,7 +418,7 @@ class DVRPReoptimizationService:
         }
 
         tabu_plan: CandidatePlan = {
-            "algorithm": tabu_name,
+            "algorithm": "tabu_search",
             "route": tabu_result["route_nodes"],
             "route_response": route_response,
             "summary": tabu_summary,
@@ -501,19 +442,23 @@ class DVRPReoptimizationService:
         
         final_candidate = tabu_plan
 
-        time_improved = int(final_candidate["estimated_total_time_in_seconds"]) < baseline_with_delay_total_time_in_seconds
+        candidate_time = int(final_candidate["estimated_total_time_in_seconds"])
+        time_improved = candidate_time < baseline_with_delay_total_time_in_seconds
+        
+        improvement_percentage = 0.0
+        
+        if time_improved and baseline_with_delay_total_time_in_seconds > 0:
+            improvement_percentage = ((baseline_with_delay_total_time_in_seconds - candidate_time) / baseline_with_delay_total_time_in_seconds) * 100.0
+        
         original_comparison_sequence = [destination_node.matrix_index, *remaining_node_indices]
         sequence_changed = self._is_sequence_changed(
             original_node_indices=original_comparison_sequence,
             candidate_route=list(final_candidate["route"]),
             depot_matrix_index=0,
         )
-
-        route_resequenced = (
-            sequence_changed
-            if self.settings.ENVIRONMENT == "development"
-            else (time_improved and sequence_changed)
-        )
+        
+        is_above_threshold = improvement_percentage >= resequence_improvement_threshold_percent
+        route_resequenced = time_improved and sequence_changed and is_above_threshold
 
         final_new_courier_route_id: int | None = None
 
@@ -524,7 +469,6 @@ class DVRPReoptimizationService:
 
             candidate_route = list(final_candidate["route"])
             
-            # Gabungkan rute yang sudah dikunjungi dengan hasil solver
             raw_full_route = visited_node_indices + candidate_route
             
             full_route_nodes: list[int] = []
@@ -532,7 +476,6 @@ class DVRPReoptimizationService:
                 if not full_route_nodes or full_route_nodes[-1] != n:
                     full_route_nodes.append(n)
                     
-            # Guarantee akhir: Pastikan dimulai dan diakhiri dengan 0
             if not full_route_nodes or full_route_nodes[0] != 0:
                 full_route_nodes.insert(0, 0)
                 if full_route_nodes[-1] != 0:
@@ -616,7 +559,12 @@ class DVRPReoptimizationService:
             final_after_total_time_in_seconds = int(final_candidate["estimated_total_time_in_seconds"])
             final_outcome = ReoptimizationOutcomeEnum.resequence_applied
             final_new_courier_route_id = newest_courier_route.id
-            
+        elif sequence_changed and time_improved and not is_above_threshold:
+            self.route_repository.shift_route_legs_after_sequence(courier_route_id, current_sequence + 1, delay_seconds)
+            current_route_leg.route_status = RouteStatusEnum.baseline_running if is_baseline else RouteStatusEnum.running
+            final_after_total_distance_in_meters = baseline_total_distance_in_meters
+            final_after_total_time_in_seconds = baseline_with_delay_total_time_in_seconds
+            final_outcome = ReoptimizationOutcomeEnum.improvement_below_threshold
         elif time_improved and not sequence_changed:
             self.route_repository.shift_route_legs_after_sequence(courier_route_id, current_sequence + 1, delay_seconds)
             current_route_leg.route_status = RouteStatusEnum.baseline_running if is_baseline else RouteStatusEnum.running
@@ -833,8 +781,6 @@ class DVRPReoptimizationService:
         after_total_distance_in_meters: int,
         after_total_time_in_seconds: int,
         is_baseline: bool,
-        greedy_algo: AlgorithmLiteral,
-        tabu_algo: AlgorithmLiteral,
     ) -> OptimizationRun:
         from uuid import UUID
 
@@ -846,7 +792,7 @@ class DVRPReoptimizationService:
                 CreateOptimizationRun(
                     simulation_id=UUID(simulation_id),
                     run_type=run_type_val,
-                    algorithm=greedy_algo,
+                    algorithm="greedy",
                     trigger_type="traffic_incident",
                     total_distance_in_meters=after_total_distance_in_meters,
                     total_travel_time_in_seconds=after_total_time_in_seconds,
@@ -861,7 +807,7 @@ class DVRPReoptimizationService:
                 CreateOptimizationRun(
                     simulation_id=UUID(simulation_id),
                     run_type=run_type_val,
-                    algorithm=tabu_algo,
+                    algorithm="tabu_search",
                     trigger_type="traffic_incident",
                     total_distance_in_meters=after_total_distance_in_meters,
                     total_travel_time_in_seconds=after_total_time_in_seconds,
@@ -1036,30 +982,6 @@ class DVRPReoptimizationService:
 
         return json.dumps(log_payload)
 
-    def _run_or_tools_solver_only(
-        self,
-        algorithm: AlgorithmLiteral,
-        solver: GreedySolver | TabuSearchSolver,
-        problem: SolverProblem,
-        selected_node_indices: list[int],
-    ) -> SolverResult:
-        started_at = datetime.now(timezone.utc)
-        manager, routing, solution = solver.solve(problem)
-        computation_time_in_ms = max((datetime.now(timezone.utc) - started_at).total_seconds() * 1000, 0.0)
-
-        if solution is None:
-            raise RuntimeError(f"No {algorithm} solution could be found for reoptimization.")
-
-        route_nodes, route_time = self._parse_solver_route_with_time(manager, routing, solution, selected_node_indices)
-
-        return {
-            "algorithm": algorithm,
-            "route_nodes": route_nodes,
-            "internal_time_in_seconds": route_time,
-            "computation_time_in_ms": computation_time_in_ms,
-            "nodes_explored": len(route_nodes),
-        }
-
     def _run_manual_solver_only(
         self,
         algorithm: AlgorithmLiteral,
@@ -1182,30 +1104,6 @@ class DVRPReoptimizationService:
             destination_index = route_nodes[i + 1]
             total_distance += distance_matrix[origin_index][destination_index]
         return total_distance
-
-    def _build_submatrix(
-        self,
-        time_matrix: list[list[int]],
-        node_indices: list[int],
-        congested_origin_index: int | None = None,
-        congested_destination_index: int | None = None,
-        big_m_penalty: int = 999_999,
-    ) -> list[list[int]]:
-        submatrix: list[list[int]] = []
-        for origin_index in node_indices:
-            row: list[int] = []
-            for destination_index in node_indices:
-                cell = time_matrix[origin_index][destination_index]
-                if (
-                    congested_origin_index is not None
-                    and congested_destination_index is not None
-                    and origin_index == congested_origin_index
-                    and destination_index == congested_destination_index
-                ):
-                    cell = big_m_penalty
-                row.append(cell)
-            submatrix.append(row)
-        return submatrix
 
     @staticmethod
     def _is_sequence_changed(

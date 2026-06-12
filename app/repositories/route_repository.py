@@ -32,6 +32,7 @@ class DueArrivalEvent(TypedDict):
     sequence: int
     is_baseline: bool
     congestion_delay_threshold_in_seconds: int
+    resequence_improvement_threshold_percent: float
 
 
 class NextRouteLegSnapshot(TypedDict):
@@ -217,7 +218,8 @@ class RouteRepository:
                 RouteLeg.courier_route_id,
                 RouteLeg.sequence,
                 RouteLeg.route_status,
-                Simulation.congestion_delay_threshold_in_seconds
+                Simulation.congestion_delay_threshold_in_seconds,
+                Simulation.resequence_improvement_threshold_percent
             )
             .join(CourierRoute, CourierRoute.id == RouteLeg.courier_route_id)
             .join(Solution, Solution.id == CourierRoute.solution_id)
@@ -241,6 +243,7 @@ class RouteRepository:
                 "sequence": int(row[6]),
                 "is_baseline": row[7] in [RouteStatusEnum.baseline_planned, RouteStatusEnum.baseline_running],
                 "congestion_delay_threshold_in_seconds": int(row[8]),
+                "resequence_improvement_threshold_percent": int(row[9]),
             }
             for row in rows
         ]

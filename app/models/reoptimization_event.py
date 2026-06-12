@@ -15,6 +15,7 @@ class ReoptimizationOutcomeEnum(enum.Enum):
     resequence_applied = "resequencing_applied"
     duration_updated = "duration_updated"
     no_improvement = "no_improvement"
+    improvement_below_threshold = "improvement_below_threshold"
 
 class ReoptimizationEvent(Base):
     __tablename__ = 'reoptimization_events'

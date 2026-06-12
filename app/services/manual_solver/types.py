@@ -6,7 +6,6 @@ from enum import Enum
 from typing import List, Literal, Optional, TypedDict
 
 OptimizationTarget = Literal["time", "distance"]
-ComparisonScenario = Literal["no_improvement", "with_improvement"]
 
 class OptimizationEvent(TypedDict, total=False):
     event_type: str
@@ -46,8 +45,6 @@ class Assignment:
 
 class FirstSolutionStrategy(Enum):
     NEAREST_NEIGHBOR = 1
-    GREEDY_EDGE_INSERTION = 2
-    AUTOMATIC = 3
 
 
 class LocalSearchMetaheuristic(Enum):
@@ -62,7 +59,7 @@ class LocalImprovementStrategy(Enum):
 
 @dataclass
 class RoutingSearchParameters:
-    first_solution_strategy: FirstSolutionStrategy = FirstSolutionStrategy.AUTOMATIC
+    first_solution_strategy: FirstSolutionStrategy = FirstSolutionStrategy.NEAREST_NEIGHBOR
     local_search_metaheuristic: LocalSearchMetaheuristic = LocalSearchMetaheuristic.TABU_SEARCH
     local_improvement_strategy: LocalImprovementStrategy = LocalImprovementStrategy.NONE
     optimization_target: OptimizationTarget = "time"  # "time" atau "distance"

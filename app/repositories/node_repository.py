@@ -2,7 +2,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session, joinedload
 from app.models.node import Node, NodeDetail
-from app.schemas.node_detail_schema import NodeDetailCreate
+from app.schemas.node_schema import NodeBase, NodeDetailCreate
 
 class NodeRepository:
     def __init__(self, db: Session):
@@ -41,24 +41,41 @@ class NodeRepository:
 
     def create_nodes_with_grouped_details(
         self,
-        grouped_data: list[tuple[Node, list[NodeDetailCreate]]]
-    ):
+        grouped_data: list[tuple[NodeBase, list[NodeDetailCreate]]],
+    ) -> list[Node]:
         try:
-            nodes = [node for node, _ in grouped_data]
-            
-            self.db.add_all(nodes)
-            self.db.flush()
-            
-            for node, details_dicts in grouped_data:
-                for detail_dict in details_dicts:
-                    node_detail = NodeDetail(
-                        node_id=node.id,
-                        **detail_dict.model_dump()
+            created_nodes: list[Node] = []
+
+            for node_data, detail_data_list in grouped_data:
+                node = Node(
+                    simulation_id=node_data.simulation_id,
+                    courier_id=node_data.courier_id,
+                    matrix_index=node_data.matrix_index,
+                    latitude=node_data.latitude,
+                    longitude=node_data.longitude,
+                    demand=node_data.demand,
+                )
+
+                self.db.add(node)
+                self.db.flush()
+
+                for detail_data in detail_data_list:
+                    self.db.add(
+                        NodeDetail(
+                            node_id=node.id,
+                            **detail_data.model_dump(),
+                        )
                     )
-                    self.db.add(node_detail)
-            
+
+                created_nodes.append(node)
+
             self.db.commit()
-            
+
+            for node in created_nodes:
+                self.db.refresh(node)
+
+            return created_nodes
+
         except Exception:
             self.db.rollback()
             raise

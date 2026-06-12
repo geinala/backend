@@ -16,7 +16,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.lib.db import Base
-from app.models.simulation_job import OptimizationAlgorithmEnum
 
 if TYPE_CHECKING:
     from app.models.solution import Solution
@@ -36,13 +35,12 @@ class Simulation(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    simulation_job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("simulation_jobs.id"), nullable=False)
+    simulation_job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     status: Mapped[SimulationStatusEnum] = mapped_column(Enum(SimulationStatusEnum, native_enum=False), nullable=False, default=SimulationStatusEnum.optimizing, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    algorithm: Mapped[OptimizationAlgorithmEnum] = mapped_column(Enum(OptimizationAlgorithmEnum, native_enum=False), nullable=False)
-    computation_time_limit_in_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=600)
+    is_with_adaptive_parameters: Mapped[bool] = mapped_column(nullable=False, default=False)
     resequence_improvement_threshold_percent: Mapped[float | None] = mapped_column(Float, nullable=True, default=5)
     congestion_delay_threshold_in_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True, default=300)
     depot_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)

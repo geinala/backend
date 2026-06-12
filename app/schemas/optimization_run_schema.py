@@ -8,7 +8,7 @@ class CreateOptimizationRun(BaseModel):
     simulation_id: uuid.UUID
     run_type: Literal["initial", "reoptimization", "reoptimization_candidate", "baseline_tracking", "duration_update"]
     courier_id: int
-    algorithm: Literal["greedy_or_tools", "tabu_search_or_tools", "greedy_with_2opt", "greedy_without_2opt", "tabu_search_with_2opt", "tabu_search_without_2opt"]
+    algorithm: Literal["greedy", "tabu_search"]
     trigger_type: str # e.g., "initial", "periodic", "traffic_update", etc.
     total_distance_in_meters: int
     total_travel_time_in_seconds: int

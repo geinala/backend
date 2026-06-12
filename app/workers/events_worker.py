@@ -204,6 +204,30 @@ def emit_vehicle_returned_to_depot_event(
         }
     )
     
+def emit_reoptimization_triggered_event(
+    simulation_id: str,
+    courier_id: int,
+    reason: str,
+) -> None:
+    publish_realtime_event(
+        "REOPTIMIZATION_TRIGGERED",
+        {
+            "simulationId": simulation_id,
+            "courierId": courier_id,
+            "reason": reason,
+        },
+        simulation_id=simulation_id,
+    )
+
+    logger.info(
+        {
+            "event_type": "reoptimization_triggered_emitted",
+            "simulation_id": simulation_id,
+            "courier_id": courier_id,
+            "reason": reason,
+        }
+    )
+    
 def _enqueue_vehicle_simulation_log(
     simulation_id: str,
     event_type: str,

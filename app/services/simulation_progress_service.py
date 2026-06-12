@@ -80,7 +80,6 @@ class SimulationProgressService:
             
             logger.info(f"Due arrivals fetched: {json.dumps(due_arrivals, default=str)}")
 
-            # Menyimpan tuple dengan struktur: (arrival, has_next_leg, reopt_queued)
             transitioned_arrivals: list[tuple[DueArrivalEvent, bool, bool]] = []
             current_job: Job | None = get_current_job()
 
@@ -96,9 +95,6 @@ class SimulationProgressService:
                         completed_at=datetime.now(timezone.utc),
                     )
 
-                # ==========================================================
-                # CEK KEMACETAN DULU SEBELUM KURIR DISURUH JALAN
-                # ==========================================================
                 next_route_leg = self.route_repository.get_next_route_leg_after_sequence(
                     courier_route_id=arrival["courier_route_id"],
                     current_sequence=arrival["sequence"],
@@ -111,11 +107,9 @@ class SimulationProgressService:
                     reopt_queued = self._process_next_route_leg(
                         arrival, 
                         next_route_leg, 
-                        current_job=current_job, 
-                        traffic_congestion_threshold_seconds=arrival["congestion_delay_threshold_in_seconds"]
+                        current_job=current_job
                     )
 
-                # HANYA jadikan route leg selanjutnya in-progress jika TIDAK ADA reoptimisasi yang masuk antrean
                 if has_next_leg and not reopt_queued:
                     self.route_repository.promote_next_route_leg_to_in_progress(
                         courier_route_id=arrival["courier_route_id"],
@@ -189,7 +183,6 @@ class SimulationProgressService:
         arrival: DueArrivalEvent,
         next_route_leg: NextRouteLegSnapshot,
         current_job: Job | None = None,
-        traffic_congestion_threshold_seconds: int = settings.TRAFFIC_CONGESTION_THRESHOLD_SECONDS,
     ) -> bool:
         # logger.info(f"TESTING MODE: Force reoptimization for leg {next_route_leg['route_leg_id']}")
         
@@ -272,7 +265,7 @@ class SimulationProgressService:
         result = self._find_congestion_incident(
             incidents,
             route_points,
-            threshold_seconds=traffic_congestion_threshold_seconds,
+            threshold_seconds=arrival["congestion_delay_threshold_in_seconds"],
         )
         congestion_result, incident_match_debugs = result
 
@@ -317,7 +310,7 @@ class SimulationProgressService:
 
         force_duration_update_only = (
             congestion_detected
-            and aggregated_delay <= traffic_congestion_threshold_seconds
+            and aggregated_delay <= arrival["congestion_delay_threshold_in_seconds"]
         )
 
         congestion_check = self.route_leg_congestion_check_repository.store_congestion_check(
@@ -369,7 +362,7 @@ class SimulationProgressService:
                     "detected_at": detection_time.isoformat(),
                     "total_delay_in_seconds": aggregated_delay,
                     "force_duration_update_only": force_duration_update_only,
-                    "resequence_threshold_seconds": traffic_congestion_threshold_seconds,
+                    "resequence_threshold_seconds": arrival["congestion_delay_threshold_in_seconds"],
                 }
             )
 
@@ -380,7 +373,7 @@ class SimulationProgressService:
                 route_leg_id=next_route_leg["route_leg_id"],
                 sequence=next_route_leg["sequence"],
                 traffic_delay_in_seconds=aggregated_delay,
-                threshold_seconds=traffic_congestion_threshold_seconds,
+                threshold_seconds=arrival["congestion_delay_threshold_in_seconds"],
                 latitude=next_route_leg["destination_latitude"],
                 longitude=next_route_leg["destination_longitude"],
                 metadata={
@@ -409,6 +402,7 @@ class SimulationProgressService:
                 delay_seconds=aggregated_delay,
                 force_duration_update_only=force_duration_update_only,
                 is_baseline=arrival["is_baseline"],
+                resequence_improvement_threshold_percent=arrival["resequence_improvement_threshold_percent"]
             )
             return True
         else:
@@ -420,7 +414,7 @@ class SimulationProgressService:
                     "courier_id": arrival["courier_id"],
                     "route_leg_id": next_route_leg["route_leg_id"],
                     "sequence": next_route_leg["sequence"],
-                    "threshold_seconds": traffic_congestion_threshold_seconds,
+                    "threshold_seconds": arrival["congestion_delay_threshold_in_seconds"],
                     "incident_match_debugs": incident_match_debugs,
                 }
             )
@@ -430,7 +424,7 @@ class SimulationProgressService:
         self,
         incident: IncidentFeature,
         route_points: list[tuple[float, float]],
-        threshold_seconds: int,
+        threshold_seconds: int | None,
         overlap_threshold_ratio: float = 0.20,
         proximity_threshold_m: float = 30.0,
     ) -> dict[str, object]:
@@ -449,7 +443,7 @@ class SimulationProgressService:
         )
 
         rejected_reasons: list[str] = []
-        if incident_properties["delay"] <= threshold_seconds:
+        if threshold_seconds is not None and incident_properties["delay"] <= threshold_seconds:
             rejected_reasons.append("delay_below_threshold")
         if not route_intersects and overlap_ratio < overlap_threshold_ratio:
             rejected_reasons.append("insufficient_route_overlap")
@@ -594,7 +588,7 @@ class SimulationProgressService:
         self,
         incidents: Sequence[IncidentFeature],
         route_points: list[tuple[float, float]],
-        threshold_seconds: int = 420,
+        threshold_seconds: int | None = None,
     ) -> tuple[IncidentFeature | list[IncidentFeature] | None, list[dict[str, object]]]:
         congested_incidents: list[IncidentFeature] = []
         incident_match_debugs: list[dict[str, object]] = []

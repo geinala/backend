@@ -113,11 +113,6 @@ class TuningExperimentService:
             nc_courier = len(set((round(r.latitude, 5), round(r.longitude, 5)) for r in c_rows if r.latitude and r.longitude))
             total_unique_nodes += nc_courier
             
-        avg_nc = max(1, round(total_unique_nodes / len(courier_groups)))
-        configs = self.generate_grid_configs(avg_nc)
-        
-        logger.info(f"Calculated average NC: {avg_nc}. Generated {len(configs)} grid configurations to evaluate.")
-
         logger.info("Starting pre-computation of distance and time matrices from TomTom...")
         for courier, c_rows in courier_groups.items():
             logger.info(f"\n{'='*50}\n[COURIER] Memulai tuning rute untuk Kurir: {courier}\n{'='*50}")
@@ -147,7 +142,7 @@ class TuningExperimentService:
             
             logger.info(f"[API] Menarik Matrix Jarak & Waktu dari TomTom untuk {len(nodes)} nodes... (Mohon tunggu)")
             
-            time_matrix, distance_matrix = await self.matrix_service.generate_live_distance_matrix_and_time_matrix_for_tuning_experiment(
+            time_matrix, distance_matrix = await self.matrix_service.generate_live_distance_matrix_and_time_matrix(
                 nodes=nodes,
                 departure_time=start_datetime
             )

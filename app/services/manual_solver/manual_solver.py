@@ -35,7 +35,7 @@ class GreedySolver(BaseManualSolverStrategy):
     def __init__(
         self,
         *,
-        first_solution_strategy: FirstSolutionStrategy = FirstSolutionStrategy.AUTOMATIC,
+        first_solution_strategy: FirstSolutionStrategy = FirstSolutionStrategy.NEAREST_NEIGHBOR,
         optimization_target: OptimizationTarget = "time",
         use_two_opt: bool = False,
         max_improvement_iterations: int = 1000,
@@ -67,7 +67,7 @@ class TabuSearchSolver(BaseManualSolverStrategy):
     def __init__(
         self,
         *,
-        first_solution_strategy: FirstSolutionStrategy = FirstSolutionStrategy.AUTOMATIC,
+        first_solution_strategy: FirstSolutionStrategy = FirstSolutionStrategy.NEAREST_NEIGHBOR,
         optimization_target: OptimizationTarget = "time",
         max_local_search_iterations: int = 500,
         max_execution_time_seconds: float = 60.0,

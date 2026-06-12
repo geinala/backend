@@ -54,6 +54,10 @@ async def geocode_address(
 
         return {"status": "success", "simulation_job_id": simulation_job_id}
     except Exception as e:
+        wide_event["status"] = "failed"
+        wide_event["error"] = str(e)
+        wide_event["duration_ms"] = (time.time() - start_time) * 1000
+        logger.error(wide_event)
         raise e
     
     

@@ -32,7 +32,8 @@ class SimulationJobController:
                 process_simulation_files,
                 job_type=JobType.HEAVY,
                 job_prefix=JOB_PREFIXES_ENUM.SIMULATION_JOB_PROCESSING_DATA,
-                simulation_job_id=simulation_job_id
+                simulation_job_id=simulation_job_id,
+                job_timeout=3600
             )
             
             logger.info(f"Enqueued file processing job {validate_file_job.id} for simulation {simulation_job_id}")
@@ -43,7 +44,8 @@ class SimulationJobController:
                 job_type=JobType.LIGHT,
                 job_prefix=JOB_PREFIXES_ENUM.SIMULATION_JOB_CLEANING_DATA,
                 simulation_job_id=simulation_job_id,
-                depends_on=validate_file_job
+                depends_on=validate_file_job,
+                job_timeout=3600
             )
                 
             wide_event["status"] = "success"

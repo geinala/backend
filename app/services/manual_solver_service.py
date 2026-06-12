@@ -1,6 +1,3 @@
-import asyncio
-import time
-import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
@@ -19,28 +16,17 @@ from app.schemas.optimization_run_schema import CreateOptimizationRun
 from app.schemas.simulation_schema import UpdateSimulationSchema
 from app.schemas.solution_schema import CreateSolution
 from app.services.matrix_service import MatrixService
-from app.services.manual_solver.types import ManualSolverProblem, Assignment, OptimizationEvent, FirstSolutionStrategy, ComparisonScenario
-from app.services.manual_solver.manual_solver import GreedySolver, TabuSearchSolver
-from app.services.manual_solver.base import BaseManualSolverStrategy
+from app.services.manual_solver.types import (
+    Assignment,
+    OptimizationEvent,
+)
 
 from app.repositories.tabu_search_configuration_repository import TabuSearchConfigurationRepository
 from app.repositories.daily_optimization_log_repository import DailyOptimizationLogRepository
 from app.schemas.daily_optimization_log_schema import DailyOptimizationLogCreate
+from app.services.manual_solver.solver_execution_service import SolverExecutionService, TabuSearchConfig, SolverResult
 
 logger = get_logger(__name__)
-
-@dataclass(frozen=True)
-class _SolverSpec:
-    greedy: BaseManualSolverStrategy
-
-def _build_solver_specs(scenario: ComparisonScenario) -> _SolverSpec:
-    use_two_opt = scenario == "with_improvement"
-    return _SolverSpec(
-        greedy=GreedySolver(
-            first_solution_strategy=FirstSolutionStrategy.NEAREST_NEIGHBOR,
-            use_two_opt=use_two_opt
-        )
-    )
 
 @dataclass
 class ParsedAssignment:
@@ -48,6 +34,7 @@ class ParsedAssignment:
     tour: list[int]
     total_distance_in_meters: int
     total_duration_in_seconds: int
+
 
 class ManualSolverService:
     def __init__(
@@ -60,7 +47,8 @@ class ManualSolverService:
         optimization_iteration_repository: OptimizationIterationRepository,
         optimization_run_repository: OptimizationRunRepository,
         tabu_search_configuration_repository: TabuSearchConfigurationRepository,
-        daily_optimization_log_repository: DailyOptimizationLogRepository
+        daily_optimization_log_repository: DailyOptimizationLogRepository,
+        solver_execution_service: SolverExecutionService | None = None,
     ) -> None:
         self.matrix_service = matrix_service
         self.courier_repository = courier_repository
@@ -71,57 +59,48 @@ class ManualSolverService:
         self.optimization_run_repository = optimization_run_repository
         self.tabu_search_configuration_repository = tabu_search_configuration_repository
         self.daily_optimization_log_repository = daily_optimization_log_repository
-        
-    def _run_solver_with_time(
-        self, 
-        solver: BaseManualSolverStrategy, 
-        problem: ManualSolverProblem
-    ) -> tuple[Assignment | None, float]:
-        start_time = time.time()
-        _, assignment = solver.solve(problem)
-        computation_time_in_ms = (time.time() - start_time) * 1000
-        return assignment, computation_time_in_ms
+        self.solver_execution_service = solver_execution_service or SolverExecutionService()
+
+    async def solve_no_improvement(self, simulation_id: str) -> None:
+        await self.solve(simulation_id)
+
+    async def solve_with_improvement(self, simulation_id: str) -> None:
+        await self.solve(simulation_id)
 
     async def solve(
         self,
         simulation_id: str,
-        scenario: ComparisonScenario = "no_improvement",
     ) -> None:
-        specs = _build_solver_specs(scenario)
-
-        time_matrix = await self.matrix_service.build_time_matrix(simulation_id)
-        distance_matrix = await self.matrix_service.build_distance_matrix(simulation_id)
-
+        logger.info(f"=== [START] Memulai Proses Solve untuk Simulation ID: {simulation_id} ===")
+        simulation = await self.simulation_repository.get_simulation_by_id(simulation_id)
+        
+        if not simulation:
+            logger.error(f"Simulation with id {simulation_id} not found.")
+            return
+        
         couriers = self.courier_repository.get_all_active_couriers_by_simulation_id(simulation_id)
         all_nodes = self.node_repository.get_nodes_by_simulation_id(simulation_id)
-        nodes_by_index: dict[int, Node] = {node.matrix_index: node for node in all_nodes}
+
+        depot_node = next((node for node in all_nodes if node.matrix_index == 0), None)
+        if not depot_node:
+            raise Exception(f"Depot node is missing for simulation {simulation_id}.")
+        
+        logger.info(f"[INFO] Total Kurir Aktif: {len(couriers)} | Total Keseluruhan Node: {len(all_nodes)}")
+
+        tabu_config = await self._load_tabu_config()
+        logger.info(f"[CONFIG] Menggunakan Tabu Config: {tabu_config}")
 
         total_solutions_inserted = 0
         optimization_runs: list[CreateOptimizationRun] = []
-        
-        active_config = await self.tabu_search_configuration_repository.get_active_tabu_search_configuration()
-        
-        if not active_config:
-            logger.warning("No active Tabu Search config found! Using paper default coefficients.")
-            it_max_mult = 10.0
-            tab_ten_div = 3.0
-            it_cons_mult = 1.0
-            it_div_div = 5.0
-        else:
-            it_max_mult = active_config.it_max_multiplier
-            tab_ten_div = active_config.tab_tenure_divider
-            it_cons_mult = active_config.it_cons_multiplier
-            it_div_div = active_config.it_div_divider
 
         log_total_nodes = 0
         log_total_greedy_fitness = 0.0
         log_total_tabu_fitness = 0.0
         log_total_execution_ms = 0.0
-
+        
         for courier in couriers:
-            courier_nodes = self.node_repository.get_nodes_by_simulation_id_and_courier_id(
-                simulation_id, courier.id
-            )
+            logger.info(f"--- Memproses Kurir ID: {courier.id} ({courier.name}) ---")
+            courier_nodes = [node for node in all_nodes if getattr(node, "courier_id", None) == courier.id]
 
             if not courier_nodes:
                 logger.info(
@@ -129,95 +108,72 @@ class ManualSolverService:
                 )
                 continue
 
-            total_courier_demand = sum(float(node.demand) for node in courier_nodes if getattr(node, 'demand', None) is not None)
-
-            selected_node_indices = self._build_courier_node_indices(
-                simulation_id, courier_nodes, nodes_by_index
+            total_courier_demand = sum(
+                float(node.demand)
+                for node in courier_nodes
+                if getattr(node, "demand", None) is not None
             )
-            time_submatrix = self._build_submatrix(time_matrix, selected_node_indices)
-            distance_submatrix = self._build_submatrix(distance_matrix, selected_node_indices)
+            
+            nodes_for_matrix = [depot_node] + sorted(courier_nodes, key=lambda n: n.matrix_index)
+            selected_node_indices = [node.matrix_index for node in nodes_for_matrix]
+            
+            now = datetime.now(timezone.utc)
+            
+            time_matrix, distance_matrix = await self.matrix_service.generate_live_distance_matrix_and_time_matrix(
+                nodes=nodes_for_matrix,
+                departure_time=now
+            )
+            
+            n_nodes = len(selected_node_indices) - 1
+            logger.info(f"[Kurir {courier.id}] Memproses {n_nodes} node (termasuk depot). Global Indices: {selected_node_indices}")
+            
+            node_logs: list[str] = []
+            for n in nodes_for_matrix:
+                n_id = getattr(n, "id", "N/A")
+                n_mat_idx = getattr(n, "matrix_index", "N/A")
+                n_demand = getattr(n, "demand", 0)
+                n_lat = getattr(n, "latitude", "N/A")
+                n_lon = getattr(n, "longitude", "N/A")
+                is_depot = " (DEPOT)" if n_mat_idx == 0 else ""
+                
+                node_logs.append(
+                    f"  -> Node ID: {n_id}{is_depot} | MatrixIdx: {n_mat_idx} | "
+                    f"Demand: {n_demand}kg | Pos: ({n_lat}, {n_lon})"
+                )
+            
+            logger.info(f"[Kurir {courier.id}] Detail Mapping Node:\n" + "\n".join(node_logs))
 
             logger.info(
                 f"Courier {courier.id} - {courier.name}: "
-                f"{len(selected_node_indices) - 1} nodes | scenario={scenario}"
+                f"{n_nodes} nodes"
             )
 
-            problem = ManualSolverProblem(
-                distance_matrix=[[float(x) for x in row] for row in distance_submatrix],
-                time_matrix=[[float(x) for x in row] for row in time_submatrix],
+            result = await self.solver_execution_service.run(
+                distance_matrix=[[float(x) for x in row] for row in distance_matrix],
+                time_matrix=[[float(x) for x in row] for row in time_matrix],
                 start_index=0,
                 end_index=0,
+                n_nodes=n_nodes,
+                tabu_config=tabu_config,
             )
 
-            n_c = len(selected_node_indices) - 1
-            
-            it_max = max(1, round(it_max_mult * n_c))
-            tabu_tenure = max(1, math.floor(n_c / tab_ten_div)) if tab_ten_div > 0 else 1
-            it_cons = round(it_cons_mult * n_c)
-            it_div = max(1, math.floor(n_c / it_div_div)) if it_div_div > 0 else 1
-
-            dynamic_tabu_solver = TabuSearchSolver(
-                enable_aspiration=True,
-                random_seed=42,
-                first_solution_strategy=FirstSolutionStrategy.NEAREST_NEIGHBOR,
-                use_two_opt_post=(scenario == "with_improvement"),
-                max_local_search_iterations=it_max,
-                early_stop_no_improvement_iterations=round(it_max * 0.2),
-                tabu_tenure=tabu_tenure,
-                diversify_after_iterations=it_cons,
-                diversification_strength=it_div,
-                optimization_target="time",
-                track_iteration_history=True,
-                save_intermediate_solutions=True,
-            )
-
-            greedy_task = asyncio.to_thread(self._run_solver_with_time, specs.greedy, problem)
-            tabu_task = asyncio.to_thread(self._run_solver_with_time, dynamic_tabu_solver, problem)
-
-            (greedy_assignment, greedy_time_ms), (tabu_assignment, tabu_time_ms) = await asyncio.gather(greedy_task, tabu_task)
-
-            if greedy_assignment is None or tabu_assignment is None:
-                raise Exception(f"No solution found for courier {courier.id} in simulation {simulation_id}.")
-                
-            log_total_nodes += n_c
-            log_total_greedy_fitness += greedy_assignment.total_duration_in_seconds
-            log_total_tabu_fitness += tabu_assignment.total_duration_in_seconds
-            log_total_execution_ms += tabu_time_ms
+            log_total_nodes += n_nodes
+            log_total_greedy_fitness += result.greedy_assignment.total_duration_in_seconds
+            log_total_tabu_fitness += result.tabu_assignment.total_duration_in_seconds
+            log_total_execution_ms += result.tabu_time_ms
 
             triggered_at = datetime.now(timezone.utc)
 
-            optimization_runs.extend([
-                CreateOptimizationRun(
-                    simulation_id=UUID(simulation_id),
-                    run_type="initial",
-                    algorithm="greedy_with_2opt" if scenario == "with_improvement" else "greedy_without_2opt",
-                    trigger_type="initial",
-                    total_distance_in_meters=int(greedy_assignment.total_distance_in_meters),
-                    total_travel_time_in_seconds=int(greedy_assignment.total_duration_in_seconds),
-                    computation_time_in_ms=greedy_time_ms,
-                    total_nodes_explored=len(greedy_assignment.tour),
-                    congestion_check_id=None,
-                    triggered_at=triggered_at,
+            optimization_runs.extend(
+                self._build_optimization_runs(
+                    simulation_id=simulation_id,
                     courier_id=courier.id,
-                ),
-                CreateOptimizationRun(
-                    simulation_id=UUID(simulation_id),
-                    run_type="initial",
-                    algorithm="tabu_search_with_2opt" if scenario == "with_improvement" else "tabu_search_without_2opt",
-                    trigger_type="initial",
-                    total_distance_in_meters=int(tabu_assignment.total_distance_in_meters),
-                    total_travel_time_in_seconds=int(tabu_assignment.total_duration_in_seconds),
-                    computation_time_in_ms=tabu_time_ms,
-                    total_nodes_explored=len(tabu_assignment.tour),
-                    congestion_check_id=None,
-                    before_total_distance_in_meters=int(greedy_assignment.total_distance_in_meters),
-                    before_total_travel_time_in_seconds=int(greedy_assignment.total_duration_in_seconds),
+                    result=result,
                     triggered_at=triggered_at,
-                    courier_id=courier.id,
                 )
-            ])
+            )
 
-            route = self._parse_assignment(tabu_assignment, selected_node_indices, courier)
+            route = self._parse_assignment(result.tabu_assignment, selected_node_indices, courier)
 
             solution = await self.solution_repository.insert_solution(
                 CreateSolution(
@@ -230,9 +186,9 @@ class ManualSolverService:
                 )
             )
 
-            if tabu_assignment.logs:
+            if result.tabu_assignment.logs:
                 iterations = self._build_iteration_schemas(
-                    logs=tabu_assignment.logs,
+                    logs=result.tabu_assignment.logs,
                     solution_id=solution.id,
                     simulation_id=simulation_id,
                     courier_id=solution.courier_id,
@@ -257,31 +213,99 @@ class ManualSolverService:
                 total_active_couriers=total_solutions_inserted,
             ),
         )
+
+        await self._write_daily_log(
+            total_couriers=total_solutions_inserted,
+            total_nodes=log_total_nodes,
+            total_greedy_fitness=log_total_greedy_fitness,
+            total_tabu_fitness=log_total_tabu_fitness,
+            total_execution_ms=log_total_execution_ms,
+        )
+
+    async def _load_tabu_config(self) -> TabuSearchConfig:
+        active = await self.tabu_search_configuration_repository.get_active_tabu_search_configuration()
+        if not active:
+            logger.warning("No active Tabu Search config found! Using paper default coefficients.")
+            return TabuSearchConfig()
         
-        total_unique_couriers = total_solutions_inserted
-        if active_config and total_unique_couriers > 0:
-            improvement_pct = 0.0
-            if log_total_greedy_fitness > 0:
-                improvement_pct = ((log_total_greedy_fitness - log_total_tabu_fitness) / log_total_greedy_fitness) * 100.0
+        return TabuSearchConfig(
+            it_max_multiplier=active.it_max_multiplier,
+            tab_tenure_divider=active.tab_tenure_divider,
+            it_cons_multiplier=active.it_cons_multiplier,
+            it_div_divider=active.it_div_divider,
+        )
 
-            log_payload = DailyOptimizationLogCreate(
-                config_id=active_config.id,
+    async def _write_daily_log(
+        self,
+        total_couriers: int,
+        total_nodes: int,
+        total_greedy_fitness: float,
+        total_tabu_fitness: float,
+        total_execution_ms: float,
+    ) -> None:
+        active = await self.tabu_search_configuration_repository.get_active_tabu_search_configuration()
+        if not active or total_couriers == 0:
+            return
+
+        improvement_pct = 0.0
+        if total_greedy_fitness > 0:
+            improvement_pct = (
+                (total_greedy_fitness - total_tabu_fitness) / total_greedy_fitness
+            ) * 100.0
+
+        await self.daily_optimization_log_repository.create_daily_optimization_log(
+            data=DailyOptimizationLogCreate(
+                config_id=active.id,
                 date=datetime.now(timezone.utc),
-                total_nodes=log_total_nodes,
-                total_couriers=total_unique_couriers,
-                execution_time_ms=log_total_execution_ms,
-                total_fitness_score=log_total_tabu_fitness,
-                improvement_percentage=improvement_pct
+                total_nodes=total_nodes,
+                total_couriers=total_couriers,
+                execution_time_ms=total_execution_ms,
+                total_fitness_score=total_tabu_fitness,
+                improvement_percentage=improvement_pct,
             )
-            
-            await self.daily_optimization_log_repository.create_daily_optimization_log(data=log_payload)
-            logger.info(f"Daily optimization log created successfully with {improvement_pct:.2f}% improvement using config {active_config.id}")
+        )
+        logger.info(
+            f"Daily optimization log created successfully with "
+            f"{improvement_pct:.2f}% improvement using config {active.id}"
+        )
 
-    async def solve_no_improvement(self, simulation_id: str) -> None:
-        await self.solve(simulation_id, scenario="no_improvement")
-
-    async def solve_with_improvement(self, simulation_id: str) -> None:
-        await self.solve(simulation_id, scenario="with_improvement")
+    @staticmethod
+    def _build_optimization_runs(
+        simulation_id: str,
+        courier_id: int,
+        result: SolverResult,
+        triggered_at: datetime,
+    ) -> list[CreateOptimizationRun]:
+        return [
+            CreateOptimizationRun(
+                simulation_id=UUID(simulation_id),
+                run_type="initial",
+                algorithm="greedy",
+                trigger_type="initial",
+                total_distance_in_meters=int(result.greedy_assignment.total_distance_in_meters),
+                total_travel_time_in_seconds=int(result.greedy_assignment.total_duration_in_seconds),
+                computation_time_in_ms=result.greedy_time_ms,
+                total_nodes_explored=len(result.greedy_assignment.tour),
+                congestion_check_id=None,
+                triggered_at=triggered_at,
+                courier_id=courier_id,
+            ),
+            CreateOptimizationRun(
+                simulation_id=UUID(simulation_id),
+                run_type="initial",
+                algorithm="tabu_search",
+                trigger_type="initial",
+                total_distance_in_meters=int(result.tabu_assignment.total_distance_in_meters),
+                total_travel_time_in_seconds=int(result.tabu_assignment.total_duration_in_seconds),
+                computation_time_in_ms=result.tabu_time_ms,
+                total_nodes_explored=len(result.tabu_assignment.tour),
+                congestion_check_id=None,
+                before_total_distance_in_meters=int(result.greedy_assignment.total_distance_in_meters),
+                before_total_travel_time_in_seconds=int(result.greedy_assignment.total_duration_in_seconds),
+                triggered_at=triggered_at,
+                courier_id=courier_id,
+            ),
+        ]
 
     def _parse_assignment(
         self,
@@ -355,8 +379,8 @@ class ManualSolverService:
         node_indices.extend(sorted(node.matrix_index for node in courier_nodes))
         return node_indices
 
+    @staticmethod
     def _build_submatrix(
-        self,
         full_matrix: list[list[int]],
         node_indices: list[int],
     ) -> list[list[int]]:

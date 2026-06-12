@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.lib.date_converter import format_departure_time
 from app.models.node import Node
@@ -52,7 +52,8 @@ class RouteService:
 
         tomtom_responses: list[TomTomRouteResultResponse] = []
         courier_routes: list[CreateCourierRoute] = []
-
+        ready_time = datetime.now().astimezone()
+        
         for index, solution in enumerate(solutions):
             courier = solution.courier
 
@@ -92,6 +93,8 @@ class RouteService:
             
             legs = routes["routes"][0]["legs"]
             cumulative_travel_time_seconds = 0
+            
+            current_departure_time = ready_time
 
             for seq, leg in enumerate(legs):
                 origin_node = node_map.get(solution.routes[seq])
@@ -101,7 +104,10 @@ class RouteService:
                     continue
 
                 summary = leg["summary"]
-                cumulative_travel_time_seconds += int(summary["travelTimeInSeconds"])
+                travel_time = int(summary["travelTimeInSeconds"])
+                cumulative_travel_time_seconds += int(travel_time)
+                
+                current_arrival_time = current_departure_time + timedelta(seconds=travel_time)
 
                 route_legs.append(
                     CreateRouteLeg(
@@ -119,8 +125,8 @@ class RouteService:
                         travel_time_in_seconds=summary["travelTimeInSeconds"],
                         traffic_delay_in_seconds=summary["trafficDelayInSeconds"],
                         traffic_distance_in_meters=summary["trafficLengthInMeters"],
-                        departure_time=datetime.fromisoformat(summary["departureTime"].replace("Z", "+00:00")),
-                        arrival_time=datetime.fromisoformat(summary["arrivalTime"].replace("Z", "+00:00")),
+                        departure_time=current_departure_time,
+                        arrival_time=current_arrival_time,
                         no_traffic_travel_time_in_seconds=summary["noTrafficTravelTimeInSeconds"],
                         historic_traffic_travel_time_in_seconds=summary["historicTrafficTravelTimeInSeconds"],
                         live_traffic_incidents_travel_time_in_seconds=summary["liveTrafficIncidentsTravelTimeInSeconds"],
@@ -131,6 +137,8 @@ class RouteService:
                         )
                     )
                 )
+                
+                current_departure_time = current_arrival_time
 
                 arrival_schedules.append(
                     {
@@ -152,10 +160,10 @@ class RouteService:
                 total_nodes=len(nodes),
                 total_couriers=len(courier_routes),
                 total_active_couriers=sum(1 for route in courier_routes if route.is_active),
+                status=SimulationStatusEnum.running,
+                started_at=ready_time
             )
         )
-        
-        await self.simulation_repository.update_simulation_status(simulation_id, SimulationStatusEnum.running)
 
         self.courier_repository.db.commit()
 

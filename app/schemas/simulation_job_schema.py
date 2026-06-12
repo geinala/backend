@@ -8,7 +8,6 @@ from app.models.simulation_job import (
     SimulationCalculationStatusEnum,
     SimulationJobFileValidationStatusEnum,
     SimulationJobFileCleaningStatusEnum,
-    OptimizationAlgorithmEnum,
 )
 
 
@@ -20,8 +19,7 @@ class SimulationJobUpdateData(BaseModel):
     depot_location_address: str | None = None
     depot_location_latitude: float | None = None
     depot_location_longitude: float | None = None
-    algorithm: OptimizationAlgorithmEnum | None = None
-    computation_time_limit_in_seconds: int | None = None
+    is_with_adaptive_parameters: bool | None = None
     resequence_improvement_threshold_percent: float | None = None
     congestion_delay_threshold_in_seconds: int | None = None
     total_demand_in_kilograms: float | None = None

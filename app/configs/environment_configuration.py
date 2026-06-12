@@ -45,8 +45,6 @@ class EnvironmentConfiguration(BaseSettings):
     SIMULATION_ARRIVAL_CHECK_SCHEDULE_QUEUE: str = os.getenv("SIMULATION_ARRIVAL_CHECK_SCHEDULE_QUEUE", "light")
     SIMULATION_ENGINE_TICK_INTERVAL_SECONDS: float = float(os.getenv("SIMULATION_ENGINE_TICK_INTERVAL_SECONDS", 10))
 
-    # Traffic Congestion Configuration
-    TRAFFIC_CONGESTION_THRESHOLD_SECONDS: int = int(os.getenv("TRAFFIC_CONGESTION_THRESHOLD_SECONDS", 420))
     # If true, require incident direction to match the route even when geometries intersect
     TRAFFIC_CONGESTION_STRICT_MODE: bool = os.getenv("TRAFFIC_CONGESTION_STRICT_MODE", "false").lower() == "true"
     # If true, accept multiple valid incidents for the same route leg (research mode)

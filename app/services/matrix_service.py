@@ -361,7 +361,7 @@ class MatrixService:
 
         return time_matrix
     
-    async def generate_live_distance_matrix_and_time_matrix_for_tuning_experiment(
+    async def generate_live_distance_matrix_and_time_matrix(
         self,
         nodes: list[Node],
         departure_time: datetime

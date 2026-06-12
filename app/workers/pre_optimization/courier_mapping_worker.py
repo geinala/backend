@@ -38,7 +38,7 @@ async def map_couriers(simulation_id: str):
         result = await pre_optimization_service.map_couriers_to_vehicles(simulation_id)
 
         wide_event["status"] = "success"
-        wide_event["mapped_vehicles"] = result.get("mapped_vehicles")
+        wide_event["mapped_couriers"] = result.get("mapped_couriers")
         wide_event["duration_ms"] = (time.time() - start_time) * 1000
         logger.info(wide_event)
 

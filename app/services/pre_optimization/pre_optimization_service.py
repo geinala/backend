@@ -1,8 +1,7 @@
 from collections import OrderedDict
 
 from app.lib.logging.logging import get_logger
-from app.models.node import Node
-from app.schemas.node_detail_schema import NodeDetailCreate
+from app.schemas.node_schema import NodeBase, NodeDetailCreate
 from app.models.simulation_job import SimulationJob
 from app.models.simulation_uploaded_row import ResolutionStatusEnum, SimulationUploadedRow
 from app.schemas.courier_schema import CreateCourier
@@ -75,67 +74,85 @@ class PreOptimizationService:
         if existing_nodes:
             logger.info(f"Nodes already mapped for simulation {simulation_id}, skipping node mapping")
             return {"simulation_id": simulation_id, "mapped_nodes": 0, "skipped": True}
+        
+        couriers = self.courier_repository.get_couriers_by_simulation_id(simulation_id)
+        courier_id_map = {courier.name: courier.id for courier in couriers}
 
-        depot_node = Node(
-            simulation_id=simulation_job.id,
-            matrix_index=0,
-            latitude=simulation_job.depot_location_latitude,
-            longitude=simulation_job.depot_location_longitude,
-            demand=0,
-            is_completed=False,
-        )
-        self.node_repository.create_node(depot_node)
-
-        grouped_nodes: dict[tuple[float, float], tuple[Node, list[NodeDetailCreate]]] = {}
-        next_matrix_index = 1
-
+        rows_by_courier: dict[str, list[SimulationUploadedRow]] = {}
         for row in rows:
-            if row.latitude is None or row.longitude is None:
-                continue
+            courier_name = self._normalize_courier_name(row.courier)
+            if courier_name not in rows_by_courier:
+                rows_by_courier[courier_name] = []
+            rows_by_courier[courier_name].append(row)
 
-            node_key = (float(row.latitude), float(row.longitude))
-            grouped_node = grouped_nodes.get(node_key)
+        total_mapped_nodes = 0
+        total_mapped_details = 0
 
-            if grouped_node is None:
-                details: list[NodeDetailCreate] = []
-                grouped_node = (
-                    Node(
-                        simulation_id=simulation_job.id,
-                        matrix_index=next_matrix_index,
-                        latitude=float(row.latitude),
-                        longitude=float(row.longitude),
-                        demand=0,
-                        is_completed=False,
-                    ),
-                    details,
-                )
-                grouped_nodes[node_key] = grouped_node
-                next_matrix_index += 1
+        for courier_name, courier_rows in rows_by_courier.items():
+            nodes: list[NodeBase] = []
+            
+            depot_node = NodeBase(
+                simulation_id=simulation_job.id,
+                matrix_index=0,
+                latitude=simulation_job.depot_location_latitude,
+                longitude=simulation_job.depot_location_longitude,
+                demand=0.0,
+                courier_id=None
+            )
+            nodes.append(depot_node)
+            
+            total_mapped_nodes += 1
 
-            node, details = grouped_node
-            node.demand += float(row.weight or 0.0)
-            details.append(self._build_node_detail(row))
+            grouped_nodes: dict[tuple[float, float], tuple[NodeBase, list[NodeDetailCreate]]] = {}
+            next_matrix_index = 1
 
-        grouped_data = [
-            grouped_node
-            for grouped_node in grouped_nodes.values()
-        ]
+            for row in courier_rows:
+                if row.latitude is None or row.longitude is None:
+                    continue
 
-        self.node_repository.create_nodes_with_grouped_details(grouped_data=grouped_data)
+                node_key = (float(row.latitude), float(row.longitude))
+                grouped_node = grouped_nodes.get(node_key)
+
+                if grouped_node is None:
+                    details: list[NodeDetailCreate] = []
+                    grouped_node = (
+                        NodeBase(
+                            simulation_id=simulation_job.id,
+                            matrix_index=next_matrix_index,
+                            latitude=float(row.latitude),
+                            longitude=float(row.longitude),
+                            demand=0,
+                            courier_id=courier_id_map.get(courier_name),
+                        ),
+                        details,
+                    )
+                    grouped_nodes[node_key] = grouped_node
+                    next_matrix_index += 1
+
+                node, details = grouped_node
+                node.demand += float(row.weight or 0.0)
+                details.append(self._build_node_detail(row))
+
+            grouped_data: list[tuple[NodeBase, list[NodeDetailCreate]]] = list(grouped_nodes.values())
+            
+            if grouped_data:
+                self.node_repository.create_nodes_with_grouped_details(grouped_data=grouped_data)
+                total_mapped_nodes += len(grouped_data)
+                total_mapped_details += sum(len(details) for _, details in grouped_data)
 
         logger.info(
             {
                 "event_type": "pre_optimization_map_nodes",
                 "simulation_id": simulation_id,
-                "mapped_nodes": len(grouped_data) + 1,
+                "mapped_nodes": total_mapped_nodes,
                 "status": "success",
             }
         )
 
         return {
             "simulation_id": simulation_id,
-            "mapped_nodes": len(grouped_data),
-            "mapped_details": sum(len(details) for _, details in grouped_data),
+            "mapped_nodes": total_mapped_nodes,
+            "mapped_details": total_mapped_details,
             "simulation_job_id": str(simulation_job.id),
         }
 

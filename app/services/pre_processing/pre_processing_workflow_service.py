@@ -33,6 +33,7 @@ class PreProcessingWorkflowService:
                 job_type=JobType.HEAVY,
                 job_prefix=JOB_PREFIXES_ENUM.SIMULATION_JOB_CLEANING_DATA,
                 simulation_job_id=simulation_job_id,
+                job_timeout=3600
             )
             
             logger.info(f"Enqueued cleaning data job {cleaning_job.id} for simulation {simulation_job_id} after file validation completion")
@@ -44,6 +45,7 @@ class PreProcessingWorkflowService:
                 simulation_job_id=simulation_job_id,                
                 depends_on=cleaning_job,
                 advance_current_step=True,
+                job_timeout=3600
             )
             
             logger.info(f"Enqueued geocoding job {geocoding_job.id} for simulation {simulation_job_id} after cleaning completion")

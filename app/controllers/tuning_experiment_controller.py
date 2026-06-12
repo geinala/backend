@@ -32,7 +32,6 @@ class TuningExperimentController:
             
             logger.info(f"Enqueued file processing job {validate_file_job.id} for tuning experiment dataset {tuning_experiment_dataset_id}")
             
-            # Enqueue cleaning data job that depends on the completion of the file validation job, ensuring proper sequencing of tasks
             enqueue_job(
                 continue_pre_processing_workflow,
                 job_type=JobType.LIGHT,

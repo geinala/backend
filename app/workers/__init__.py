@@ -1,7 +1,4 @@
-from .solver_worker import (
-	get_solution_with_or_tools as or_tools_solver,
-	get_solution_with_manual_solver as manual_solver,
-)
+from .solver_worker import get_solution_with_manual_solver as manual_solver
 from .optimization_worker import optimize as optimization_worker_optimize
 from .dvrp_reoptimization_worker import process_congestion_reoptimization as dvrp_reoptimization_worker_process_congestion
 from .matrix_worker import (
@@ -23,7 +20,6 @@ async def matrix_worker_get_matrix_results(simulation_id: str):
 	return await _matrix_worker_get_matrix_results(simulation_id)
 
 __all__ = [
-	"or_tools_solver",
 	"manual_solver",
 	"optimization_worker_optimize",
 	"dvrp_reoptimization_worker_process_congestion",

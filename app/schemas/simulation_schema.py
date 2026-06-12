@@ -2,7 +2,6 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from app.models.simulation import SimulationStatusEnum
-from app.models.simulation_job import OptimizationAlgorithmEnum
 
 
 class UpdateSimulationSchema(BaseModel):
@@ -10,8 +9,7 @@ class UpdateSimulationSchema(BaseModel):
     status: SimulationStatusEnum | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    algorithm: OptimizationAlgorithmEnum | None = None
-    computation_time_limit_in_seconds: int | None = None
+    is_with_adaptive_parameters: bool | None = None
     resequence_improvement_threshold_percent: float | None = None
     congestion_delay_threshold_in_seconds: int | None = None
     depot_id: int | None = None

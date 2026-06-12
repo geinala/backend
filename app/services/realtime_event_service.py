@@ -46,9 +46,6 @@ def publish_realtime_event(
 
     serialized_event = json.dumps(event)
 
-    # Keep a global stream for backward compatibility and diagnostics.
-    redis.publish(GLOBAL_EVENTS_CHANNEL, serialized_event)  # type: ignore[reportUnknownMemberType]
-
     if resolved_simulation_id:
         redis.publish(  # type: ignore[reportUnknownMemberType]
             get_events_channel(resolved_simulation_id),

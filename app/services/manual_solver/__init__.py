@@ -6,7 +6,6 @@ from app.services.manual_solver.types import (
     FirstSolutionStrategy,
     LocalSearchMetaheuristic,
     LocalImprovementStrategy,
-    ComparisonScenario,
 )
 from app.services.manual_solver.routing_model import RoutingModel
 from app.services.manual_solver.base import BaseManualSolverStrategy
@@ -15,10 +14,8 @@ from app.services.manual_solver.manual_solver import (
     TabuSearchSolver,
     ManualSolverStrategy,
 )
-from app.services.manual_solver.service import ManualSolverService
 
 __all__ = [
-    "ManualSolverService",
     "GreedySolver",
     "TabuSearchSolver",
     "ManualSolverStrategy",
@@ -31,5 +28,4 @@ __all__ = [
     "FirstSolutionStrategy",
     "LocalSearchMetaheuristic",
     "LocalImprovementStrategy",
-    "ComparisonScenario",
 ]

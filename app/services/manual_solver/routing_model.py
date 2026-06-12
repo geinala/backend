@@ -43,16 +43,6 @@ class RoutingModel:
         self.num_nodes = len(self.distance_matrix)
         
         if problem.start_index is not None and problem.end_index is not None:
-            BIG_M = 999_999_999.0
-            
-            for i in range(self.num_nodes):
-                if i != problem.start_index:
-                    self.distance_matrix[problem.end_index][i] = BIG_M
-                    self.time_matrix[problem.end_index][i] = BIG_M
-                if i != problem.end_index:
-                    self.distance_matrix[i][problem.start_index] = BIG_M
-                    self.time_matrix[i][problem.start_index] = BIG_M
-            
             self.distance_matrix[problem.end_index][problem.start_index] = 0.0
             self.time_matrix[problem.end_index][problem.start_index] = 0.0
 
@@ -102,9 +92,6 @@ class RoutingModel:
         if params.first_solution_strategy == FirstSolutionStrategy.NEAREST_NEIGHBOR:
             best_tour = _nearest_neighbor_tsp(self.cost_matrix)
             algo_name = "Nearest Neighbor"
-        elif params.first_solution_strategy == FirstSolutionStrategy.GREEDY_EDGE_INSERTION:
-            best_tour = _greedy_edge_tsp(self.cost_matrix)
-            algo_name = "Greedy Edge Insertion"
         else:
             tour_nn = _nearest_neighbor_tsp(self.cost_matrix)
             tour_ge = _greedy_edge_tsp(self.cost_matrix)
@@ -160,7 +147,7 @@ class RoutingModel:
         logs: List[OptimizationEvent] = []
 
         # --- Solusi Awal ---
-        starts = min(n, 5) if params.first_solution_strategy == FirstSolutionStrategy.AUTOMATIC else 1
+        starts = min(n, 5) if params.first_solution_strategy == FirstSolutionStrategy.NEAREST_NEIGHBOR else 1
         best_tour, best_cost = [], float("inf")
         for s in range(starts):
             t = _nearest_neighbor_init(self.cost_matrix, start=s)
