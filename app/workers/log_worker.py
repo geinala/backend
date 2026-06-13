@@ -5,13 +5,13 @@ from app.lib.logging.logging import get_logger
 from app.lib.db import get_db
 
 from pydantic import ValidationError
-from app.schemas.simulation_log_schema import CreateSimulationLog
+from app.schemas.simulation_log_schema import SimulationLogCreate
 from typing import Any
 
 logger = get_logger(__name__)
 
 
-async def create_simulation_log(log_payload: CreateSimulationLog) -> dict[str, Any]:
+async def create_simulation_log(log_payload: SimulationLogCreate) -> dict[str, Any]:
     job = get_current_job()
     start_time = time.time()
 

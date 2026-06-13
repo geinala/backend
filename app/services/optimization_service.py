@@ -1,4 +1,5 @@
 from typing import Any, Callable
+from uuid import UUID
 
 from app.lib.logging.logging import get_logger
 from rq.job import Job
@@ -12,7 +13,7 @@ from app.services.matrix_service import MatrixService
 from app.workers.solver_worker import get_solution_with_manual_solver
 from app.workers.route_worker import generate_routes
 from app.workers.log_worker import create_simulation_log
-from app.schemas.simulation_log_schema import CreateSimulationLog
+from app.schemas.simulation_log_schema import SimulationLogCreate
 from app.workers.pre_optimization.courier_mapping_worker import map_couriers as map_couriers_to_simulation
 from app.workers.pre_optimization.node_mapping_worker import map_nodes as map_optimization_nodes
 
@@ -69,11 +70,12 @@ class OptimizationService:
                 create_simulation_log,
                 job_type=JobType.LIGHT,
                 job_prefix=JOB_PREFIXES_ENUM.SIMULATION_LOG,
-                log_payload=CreateSimulationLog(
-                    simulation_id=simulation_id,
+                log_payload=SimulationLogCreate(
+                    simulation_id=UUID(simulation_id),
                     event_type=event_type,
                     title=title,
                     description=description,
+                    log_level="INFO"
                 ),
                 depends_on=depends_on,
             )

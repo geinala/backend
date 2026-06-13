@@ -2,7 +2,8 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 import json
-from typing import Literal, TypedDict, cast, Sequence
+from typing import Any, Literal, TypedDict, cast, Sequence
+from uuid import UUID
 from app.configs.environment_configuration import get_environment_configuration
 from app.constants.simulation_log_event_types import ROUTE_REOPTIMIZED
 from app.lib.logging.logging import get_logger
@@ -26,7 +27,7 @@ from app.schemas.courier_route_schema import CreateCourierRoute
 from app.schemas.daily_optimization_log_schema import DailyOptimizationLogCreate
 from app.schemas.optimization_run_schema import CreateOptimizationRun
 from app.schemas.route_schema import CreateRouteLeg
-from app.schemas.simulation_log_schema import CreateSimulationLog
+from app.schemas.simulation_log_schema import SimulationLogCreate
 from app.schemas.simulation_schema import UpdateSimulationSchema
 from app.schemas.solution_schema import CreateSolution
 from app.services.manual_solver.solver_execution_service import SolverExecutionService
@@ -36,6 +37,10 @@ from app.services.manual_solver.types import ManualSolverProblem
 from app.services.tomtom_service import TomTomService
 from app.models.node import Node
 from app.lib.date_converter import format_departure_time
+from app.services.job_service import enqueue_job
+from app.constants.job_prefixes import JOB_PREFIXES_ENUM
+from app.configs.worker_configuration import JobType
+from app.workers.log_worker import create_simulation_log
 
 logger = get_logger(__name__)
 
@@ -200,11 +205,8 @@ class DVRPReoptimizationService:
             n for n in nodes_after_origin 
             if n != destination_node.matrix_index and n != 0
         ]
-
-        logger.info({
-            "event_type": "DEBUG_ROUTE_SLICING",
-            "courier_route_id": courier_route_id,
-            "courier_id": courier_id,
+        
+        slicing_debug_data: dict[str, Any] = {
             "origin_node_matrix_index": origin_node.matrix_index,
             "destination_node_matrix_index": destination_node.matrix_index,
             "original_route": route_node_indices,
@@ -212,21 +214,50 @@ class DVRPReoptimizationService:
             "visited_node_indices": visited_node_indices,
             "raw_remaining": nodes_after_origin,
             "remaining_node_indices": remaining_node_indices,
-        })
+        }
+
+        logger.info({"event_type": "DEBUG_ROUTE_SLICING", **slicing_debug_data})
+        
+        self._enqueue_db_log(
+            data=SimulationLogCreate(
+                simulation_id=UUID(simulation_id),
+                courier_id=courier_id,
+                courier_route_id=courier_route_id,
+                event_type="DEBUG_ROUTE_SLICING",
+                title=f"Route Slicing Breakdown",
+                description=(f"Detail pemotongan rute untuk membedakan rute yang sudah dilewati dan yang tersisa."),
+                log_metadata=json.dumps(slicing_debug_data),
+                log_level="INFO"
+            )
+        )
 
         old_future_legs = self.route_repository.get_route_legs_by_courier_route_id(courier_route_id)
         baseline_total_distance_in_meters = int(snapshot["total_distance_in_meters"])
         baseline_total_time_in_seconds = int(snapshot["total_time_in_seconds"])
         baseline_with_delay_total_time_in_seconds = baseline_total_time_in_seconds + delay_seconds
 
-        logger.info({
-            "event_type": "DEBUG_ROUTE_ORIGINAL",
+        debug_data: dict[str, Any] = {
             "courier_route_id": courier_route_id,
             "route_version": snapshot["route_version"],
             "route_node_indices": route_node_indices,
             "origin_node_matrix_index": origin_node.matrix_index if origin_node else None,
             "current_sequence": current_sequence
-        })
+        }
+        
+        # logger.info({"event_type": "DEBUG_ROUTE_ORIGINAL", **debug_data})
+        
+        self._enqueue_db_log(
+            data=SimulationLogCreate(
+                simulation_id=UUID(simulation_id),
+                courier_id=courier_id,
+                courier_route_id=courier_route_id,
+                event_type="DEBUG_ROUTE_ORIGINAL",
+                title=f"Original Route Details",
+                description=(f"Informasi rute asli sebelum reoptimisasi diterapkan."),
+                log_metadata=json.dumps(debug_data),
+                log_level="INFO"
+            )
+        )
 
         self.route_repository.update_route_leg_delay(route_leg_id, delay_seconds)
 
@@ -397,14 +428,31 @@ class DVRPReoptimizationService:
             await self.daily_optimization_log_repository.create_daily_optimization_log(data=log_payload)
             logger.info(f"Daily optimization log created for Reoptimization with {improvement_pct:.2f}% improvement using config {tabu_search_active_config.id}")
         
-        logger.info({
-            "event_type": "DEBUG_SOLVER_OUTPUT",
+        debug_solver_data: dict[str, Any] = {
             "courier_route_id": courier_route_id,
             "courier_id": courier_id,
             "selected_node_indices_input": selected_node_indices,
             "greedy_raw_route": greedy_result["route_nodes"],
             "tabu_raw_route": tabu_result["route_nodes"]
+        }
+        
+        logger.info({
+            "event_type": "DEBUG_SOLVER_OUTPUT",
+            **debug_solver_data,
         })
+        
+        self._enqueue_db_log(
+            data=SimulationLogCreate(
+                simulation_id=UUID(simulation_id),
+                courier_id=courier_id,
+                courier_route_id=courier_route_id,
+                event_type="DEBUG_SOLVER_OUTPUT",
+                title=f"Solver Output Details",
+                description=(f"Rute yang dihasilkan oleh solver untuk reoptimisasi."),
+                log_metadata=json.dumps(debug_solver_data),
+                log_level="INFO"
+            )
+        )
 
         tabu_route_points = ":".join(self._build_route_points(tabu_result["route_nodes"], node_by_matrix_index))
         greedy_route_points = ":".join(self._build_route_points(greedy_result["route_nodes"], node_by_matrix_index))
@@ -437,12 +485,30 @@ class DVRPReoptimizationService:
         historical_distance_in_meters = past_distance + int(current_route_leg.distance_in_meters)
         historical_time_in_seconds = past_time + original_current_leg_travel_time + delay_seconds
         
-        logger.info({
-            "event_type": "DEBUG_HISTORICAL_TIME_CHECK",
+        debug_historical_time_data: dict[str, Any] = {
             "current_leg_travel_time_before_calc": current_route_leg.travel_time_in_seconds,
             "delay_seconds": delay_seconds,
             "past_time": past_time,
+        }
+
+        logger.info({
+            "event_type": "DEBUG_HISTORICAL_TIME_CHECK",
+            **debug_historical_time_data,
         })
+        
+        self._enqueue_db_log(
+            data=SimulationLogCreate(
+                courier_id=courier_id,
+                courier_route_id=courier_route_id,
+                simulation_id=UUID(simulation_id),
+                log_metadata=json.dumps(debug_historical_time_data),
+                title=f"Historical Time Calculation Details",
+                description=(f"Rincian perhitungan waktu historis yang sudah ditempuh hingga titik reoptimisasi."),
+                event_type="DEBUG_HISTORICAL_TIME_CHECK",
+                log_level="INFO"
+            )
+        )
+        
         
         baseline_future_time = sum(
             leg.travel_time_in_seconds for leg in old_future_legs if leg.sequence > current_sequence
@@ -513,8 +579,7 @@ class DVRPReoptimizationService:
         
         route_resequenced = time_improved and sequence_changed and is_above_threshold
         
-        logger.info({
-            "event_type": "DEBUG_RESEQUENCE_EVALUATION",
+        debug_resequence_data: dict[str, Any] = {
             "courier_route_id": courier_route_id,
             "courier_id": courier_id,
             "fair_baseline_total_time_in_seconds": fair_baseline_total_time_in_seconds,
@@ -533,7 +598,25 @@ class DVRPReoptimizationService:
             "greedy_estimated_total_time_in_seconds": historical_time_in_seconds + int(greedy_summary["travelTimeInSeconds"]),
             "historical_distance_in_meters": historical_distance_in_meters,
             "historical_time_in_seconds": historical_time_in_seconds,
+        }
+        
+        logger.info({
+            "event_type": "DEBUG_RESEQUENCE_EVALUATION",
+            **debug_resequence_data,
         })
+        
+        self._enqueue_db_log(
+            data=SimulationLogCreate(
+                simulation_id=UUID(simulation_id),
+                courier_id=courier_id,
+                courier_route_id=courier_route_id,
+                event_type="DEBUG_RESEQUENCE_EVALUATION",
+                title=f"Resequence Evaluation Details",
+                description=(f"Rincian evaluasi untuk keputusan apakah rute akan di-resequence atau tidak."),
+                log_metadata=json.dumps(debug_resequence_data),
+                log_level="INFO"
+            )
+        )
 
         final_new_courier_route_id: int | None = None
 
@@ -556,15 +639,32 @@ class DVRPReoptimizationService:
                 if full_route_nodes[-1] != 0:
                     full_route_nodes.append(0)
             
-            logger.info({
-                "event_type": "DEBUG_ROUTE_STITCHING",
+            debug_full_route_data: dict[str, Any] = {
                 "courier_route_id": courier_route_id,
                 "courier_id": courier_id,
                 "visited_node_indices": visited_node_indices,
                 "candidate_route_from_solver": candidate_route,
                 "raw_full_route": visited_node_indices + candidate_route,
                 "final_sanitized_route": full_route_nodes
+            }
+            
+            logger.info({
+                "event_type": "DEBUG_ROUTE_STITCHING",
+                **debug_full_route_data,
             })
+            
+            self._enqueue_db_log(
+                data=SimulationLogCreate(
+                    simulation_id=UUID(simulation_id),
+                    courier_id=courier_id,
+                    courier_route_id=courier_route_id,
+                    event_type="DEBUG_ROUTE_STITCHING",
+                    title=f"Route Stitching Details",
+                    description=(f"Rincian proses penggabungan rute yang sudah dilewati dengan rute baru hasil reoptimisasi."),
+                    log_metadata=json.dumps(debug_full_route_data),
+                    log_level="INFO"
+                )
+            )
 
             newest_solution = await self.solution_repository.insert_solution(
                 solution=CreateSolution(
@@ -664,11 +764,9 @@ class DVRPReoptimizationService:
             courier_id=courier_id,
             final_outcome=final_outcome,
         )
-
-        logger.info(
-            {
-                "event_type": "dvrp_reoptimization_candidates_evaluated",
-                "simulation_id": simulation_id,
+        
+        debug_final_run_data: dict[str, Any] = {
+            "simulation_id": simulation_id,
                 "courier_route_id": courier_route_id,
                 "courier_id": courier_id,
                 "route_leg_id": route_leg_id,
@@ -705,7 +803,24 @@ class DVRPReoptimizationService:
                 "is_above_threshold": is_above_threshold,
                 "route_resequenced": route_resequenced,
                 "resequence_improvement_threshold_percent": resequence_improvement_threshold_percent,
-            }
+        }
+
+        logger.info({
+                "event_type": "dvrp_reoptimization_candidates_evaluated",
+                **debug_final_run_data,
+        })
+
+        self._enqueue_db_log(
+            data=SimulationLogCreate(
+                simulation_id=UUID(simulation_id),
+                courier_id=courier_id,
+                courier_route_id=courier_route_id,
+                event_type="dvrp_reoptimization_candidates_evaluated",
+                title=f"DVRP Reoptimization Candidates Evaluated",
+                description=(f"Rincian hasil evaluasi kandidat solusi reoptimisasi DVRP."),
+                log_metadata=json.dumps(debug_final_run_data),
+                log_level="INFO"
+            )
         )
 
         return await self._finalize_reoptimization(
@@ -826,8 +941,8 @@ class DVRPReoptimizationService:
         }
 
         await SimulationLogRepository(self.route_repository.db).create_log(
-            CreateSimulationLog(
-                simulation_id=simulation_id,
+            SimulationLogCreate(
+                simulation_id=UUID(simulation_id),
                 courier_route_id=courier_route_id,
                 courier_id=courier_id,
                 event_type=ROUTE_REOPTIMIZED,
@@ -843,7 +958,8 @@ class DVRPReoptimizationService:
                 ),
                 latitude=float(current_route_leg.destination_latitude),
                 longitude=float(current_route_leg.destination_longitude),
-                metadata=json.dumps(metadata_dict),
+                log_metadata=json.dumps(metadata_dict),
+                log_level="INFO"
             )
         )
 
@@ -1209,3 +1325,30 @@ class DVRPReoptimizationService:
 
     def _conversion_demand_to_grams(self, demand: float) -> int:
         return round(demand * 1000)
+    
+    def _enqueue_db_log(
+        self,
+        data: SimulationLogCreate,
+    ) -> None:
+        try:
+            metadata_str = json.dumps(data.log_metadata, default=str) if data.log_metadata else None
+            
+            log_payload = SimulationLogCreate(
+                simulation_id=data.simulation_id,
+                courier_route_id=data.courier_route_id,
+                courier_id=data.courier_id,
+                log_level=data.log_level,
+                event_type=data.event_type,
+                title=data.title,
+                description=data.description or f"Detail log for {data.event_type}",
+                log_metadata=metadata_str
+            )
+
+            enqueue_job(
+                create_simulation_log,
+                job_type=JobType.LIGHT,
+                job_prefix=JOB_PREFIXES_ENUM.SIMULATION_LOG,
+                log_payload=log_payload
+            )
+        except Exception as e:
+            logger.error(f"Failed to enqueue DB debug log for {data.event_type}: {str(e)}")

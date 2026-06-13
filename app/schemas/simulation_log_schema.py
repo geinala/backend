@@ -1,16 +1,19 @@
+from uuid import UUID
 from pydantic import BaseModel
 
-class CreateSimulationLog(BaseModel):
-    simulation_id: str
+
+class SimulationLogBase(BaseModel):
+    simulation_id: UUID
     courier_route_id: int | None = None
     courier_id: int | None = None
-    log_level: str = "INFO"
-    event_type: str | None = None
-    title: str | None = None
+    log_level: str
+    event_type: str
+    title: str
     description: str | None = None
     latitude: float | None = None
     longitude: float | None = None
-    metadata: str | None = None
-    
-    class Config:
-        from_attributes = True
+    log_metadata: str | None = None
+
+
+class SimulationLogCreate(SimulationLogBase):
+    pass

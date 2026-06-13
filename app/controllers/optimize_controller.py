@@ -1,6 +1,8 @@
+from uuid import UUID
+
 from app.constants.simulation_log_event_types import SIMULATION_STARTED
 from app.lib.logging.logging import get_logger
-from app.schemas.simulation_log_schema import CreateSimulationLog
+from app.schemas.simulation_log_schema import SimulationLogCreate
 from app.services.job_service import enqueue_job
 from app.constants.job_prefixes import JOB_PREFIXES_ENUM
 from app.configs.worker_configuration import JobType
@@ -13,11 +15,12 @@ logger = get_logger(__name__)
 class OptimizeController:
     async def optimize(self, simulation_id: str):
         try:
-            log_payload: CreateSimulationLog = CreateSimulationLog(
-                simulation_id=simulation_id,
+            log_payload: SimulationLogCreate = SimulationLogCreate(
+                simulation_id=UUID(simulation_id),
                 event_type=SIMULATION_STARTED,
                 title=f"Optimization started for simulation {simulation_id}",
-                description=f"Optimization process has been initiated for simulation {simulation_id}"
+                description=f"Optimization process has been initiated for simulation {simulation_id}",
+                log_level="INFO"
             )
 
             enqueue_job(

@@ -1,5 +1,6 @@
 import json
 from typing import Mapping, Any
+from uuid import UUID
 
 from app.configs.worker_configuration import JobType
 from app.constants.job_prefixes import JOB_PREFIXES_ENUM
@@ -11,7 +12,7 @@ from app.constants.simulation_log_event_types import (
     VEHICLE_RETURNED_TO_DEPOT,
 )
 from app.lib.logging.logging import get_logger
-from app.schemas.simulation_log_schema import CreateSimulationLog
+from app.schemas.simulation_log_schema import SimulationLogCreate
 from app.services.job_service import enqueue_job
 from app.services.realtime_event_service import publish_realtime_event
 from app.workers.log_worker import create_simulation_log
@@ -250,12 +251,13 @@ def _enqueue_vehicle_simulation_log(
         create_simulation_log,
         job_type=JobType.LIGHT,
         job_prefix=JOB_PREFIXES_ENUM.SIMULATION_LOG,
-        log_payload=CreateSimulationLog(
-            simulation_id=simulation_id,
+        log_payload=SimulationLogCreate(
+            simulation_id=UUID(simulation_id),
             courier_route_id=courier_route_id,
             courier_id=courier_id,
             event_type=event_type,
             title=title,
             description=description,
+            log_level="INFO"
         ),
     )
