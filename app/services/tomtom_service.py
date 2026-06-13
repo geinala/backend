@@ -1,5 +1,3 @@
-from datetime import datetime, timezone
-
 import requests
 from typing import List, TypedDict
 from app.configs.environment_configuration import get_environment_configuration
@@ -167,7 +165,7 @@ IncidentProperties = TypedDict(
     "from": str,
     "to": str,
     "length": float,
-    "delay": int,
+    "delay": int | None,
     "events": list[IncidentEvent],
   },
 )
@@ -218,7 +216,7 @@ class TomTomService:
 
     def generate_routes(self, routes: str, depart_at: str | None) -> TomTomRouteResultResponse:
         options: RoutingPayload = {
-            "computeBestOrder": True,
+            "computeBestOrder": False,
             "traffic": True,
             "avoid": ["tollRoads", "ferries"],
             "travelMode": "motorcycle",
@@ -267,8 +265,7 @@ class TomTomService:
         destinations: list[LocationPayload],
         departure_time: str | None = None
     ) -> TomTomSubmitedMatrixResponse:
-        now = datetime.now(timezone.utc)
-        traffic_type = "historical" if departure_time and datetime.fromisoformat(departure_time) < now else "live"
+        traffic_type = "live" if departure_time is None else "historical"
         
         payload: MatrixPayload = {
             "origins": origins,

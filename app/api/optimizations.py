@@ -9,11 +9,11 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/optimizations", tags=["Optimizations"])
 
 @router.post(
-    path="/{id}",
+    path="/{simulation_id}",
     summary="Start optimization process for a given simulation"
 )
 async def initial_solution(
-    id: str
+    simulation_id: str
 ):
     controller = OptimizeController()
-    return await controller.optimize(simulation_id=id)
+    return await controller.optimize(simulation_id=simulation_id)

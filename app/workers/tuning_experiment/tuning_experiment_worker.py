@@ -1,8 +1,6 @@
 
 from app.lib.db import get_db
 from app.repositories.depot_repository import DepotRepository
-from app.repositories.matrix_repository import MatrixRepository
-from app.repositories.node_repository import NodeRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.repositories.tuning_experiment_dataset_repository import TuningExperimentDatasetRepository
 from app.repositories.tuning_experiment_repository import TuningExperimentRepository
@@ -22,9 +20,7 @@ async def process_tuning_experiment(tuning_experiment_dataset_id: str):
             tuning_experiment_run_repository=TuningExperimentRunRepository(db),
             tuning_experiment_uploaded_row_repository=TuningExperimentUploadedRowRepository(db),
             matrix_service=MatrixService(
-                node_repository=NodeRepository(db),
                 tomtom_service=TomTomService(),
-                matrix_repository=MatrixRepository(db),
                 simulation_repository=SimulationRepository(db)
             ),
             depot_repository=DepotRepository(db),

@@ -17,6 +17,7 @@ class JOB_PREFIXES_ENUM(str, Enum):
     MATRIX_RESULT_PROCESSING = JobType.HEAVY.value + "-" + "matrix_result_processing"
     OPTIMIZATION_PRE_COURIER_MAPPING = JobType.HEAVY.value + "-" + "optimization_pre_courier_mapping"
     OPTIMIZATION_PRE_NODE_MAPPING = JobType.HEAVY.value + "-" + "optimization_pre_node_mapping"
+    PRE_OPTIMIZATION_WORKFLOW_CONTINUE = JobType.HEAVY.value + "-" + "pre_optimization_workflow_continue"
     OPTIMIZATION = JobType.HEAVY.value + "-" + "optimization"
     GET_OPTIMIZATION_RESULT = JobType.HEAVY.value + "-" + "get_optimization_result"
     ROUTE_GENERATION = JobType.HEAVY.value + "-" + "route_generation"

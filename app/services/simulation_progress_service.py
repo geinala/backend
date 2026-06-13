@@ -62,7 +62,7 @@ class SimulationProgressService:
         self.matrix_service = matrix_service
         self.tomtom_service = tomtom_service
 
-    def process_running_simulation_arrivals(
+    async def process_running_simulation_arrivals(
         self,
         reference_time: datetime,
         job_id: str | None = None,
@@ -84,11 +84,19 @@ class SimulationProgressService:
             current_job: Job | None = get_current_job()
 
             for arrival in due_arrivals:
+                simulation = await self.simulation_repository.get_simulation_by_id(arrival["simulation_id"])
+
+                if simulation is None:
+                    logger.warning(f"Simulation not found for arrival event: {arrival}")
+                    continue
+                
                 updated = self.route_repository.mark_route_leg_as_visited(arrival["route_leg_id"], arrival["is_baseline"])
                 if not updated:
                     continue
+                
+                logger.info(f"Processing arrival: {arrival}")
 
-                if arrival["node_id"] >= 0 and not arrival["is_baseline"]:
+                if arrival["to_node_matrix_index"] != 0 and not arrival["is_baseline"]:
                     self.node_repository.mark_node_as_completed(
                         node_id=arrival["node_id"],
                         courier_id=arrival["courier_id"],
@@ -121,16 +129,23 @@ class SimulationProgressService:
                     simulation_id=arrival["simulation_id"],
                     has_next_leg=has_next_leg,
                     is_baseline=arrival["is_baseline"],
+                    is_real_node=arrival["to_node_matrix_index"] != 0,
                 )
                 
                 transitioned_arrivals.append((arrival, has_next_leg, reopt_queued))
 
             emitted_count = 0
             for arrival, has_next_leg, reopt_queued in transitioned_arrivals:
-                if arrival["node_id"] < 0:
+                if arrival.get("is_baseline", False):
                     continue
                 
-                if arrival.get("is_baseline", False):
+                if arrival["to_node_matrix_index"] == 0:
+                    emit_vehicle_returned_to_depot_event(
+                        simulation_id=arrival["simulation_id"],
+                        courier_route_id=arrival["courier_route_id"],
+                        courier_id=arrival["courier_id"],
+                    )
+                    emitted_count += 1
                     continue
 
                 emit_vehicle_arrived_event(
@@ -142,7 +157,6 @@ class SimulationProgressService:
                 )
 
                 if has_next_leg:
-                    # TAHAN EVENT KE FRONTEND JIKA REOPTIMISASI MASUK ANTREAN
                     if not reopt_queued:
                         emit_vehicle_departed_node_event(
                             simulation_id=arrival["simulation_id"],
@@ -150,12 +164,7 @@ class SimulationProgressService:
                             courier_id=arrival["courier_id"],
                             node_id=arrival["node_id"],
                         )
-                else:
-                    emit_vehicle_returned_to_depot_event(
-                        simulation_id=arrival["simulation_id"],
-                        courier_route_id=arrival["courier_route_id"],
-                        courier_id=arrival["courier_id"],
-                    )
+
                 emitted_count += 1
 
             wide_event["status"] = "success"
@@ -203,7 +212,7 @@ class SimulationProgressService:
         #     courier_route_id=arrival["courier_route_id"],
         #     courier_id=arrival["courier_id"],
         #     current_sequence=next_route_leg["sequence"],
-        #     delay_seconds=1,
+        #     delay_seconds=10000,
         #     force_duration_update_only=is_last_leg,  # Force duration update only for last leg to speed up testing
         #     is_baseline=arrival["is_baseline"],
         # )
@@ -239,6 +248,8 @@ class SimulationProgressService:
         incidents = incident_details["incidents"]
         detection_time = datetime.now(timezone.utc)
         stored_incidents_by_tomtom_id: dict[str, TrafficIncident] = {}
+        
+        logger.info(f"Incidents received from TomTom: {json.dumps(incidents, default=str)}")
 
         for incident in incidents:
             stored_incident = self.traffic_incident_repository.store_congestion_incident(
@@ -279,7 +290,7 @@ class SimulationProgressService:
             else:
                 accepted_incidents = [congestion_result]
 
-            selected_incident = max(accepted_incidents, key=lambda inc: inc["properties"]["delay"])
+            selected_incident = max(accepted_incidents, key=lambda inc: int(inc["properties"]["delay"] or 0))
             selected_tomtom_incident_id = selected_incident["properties"]["id"]
 
             for inc in accepted_incidents:
@@ -443,7 +454,7 @@ class SimulationProgressService:
         )
 
         rejected_reasons: list[str] = []
-        if threshold_seconds is not None and incident_properties["delay"] <= threshold_seconds:
+        if threshold_seconds is not None and int(incident_properties["delay"] or 0) <= threshold_seconds:
             rejected_reasons.append("delay_below_threshold")
         if not route_intersects and overlap_ratio < overlap_threshold_ratio:
             rejected_reasons.append("insufficient_route_overlap")
@@ -528,7 +539,7 @@ class SimulationProgressService:
             proximity_threshold_m = cast(int, incident_match_debug["proximity_threshold_m"])
             row: CongestionCheckIncidentRow = {
                 "traffic_incident_id": stored_incident.id if stored_incident is not None else None,
-                "delay_in_seconds": int(incident["properties"]["delay"]),
+                "delay_in_seconds": int(incident["properties"]["delay"] or 0),
                 "overlap_ratio": overlap_ratio,
                 "rejected_reasons": rejected_reasons,
                 "route_intersects": bool(incident_match_debug.get("route_intersects", False)),
@@ -614,4 +625,4 @@ class SimulationProgressService:
             return congested_incidents, incident_match_debugs
 
         # Default behavior: return single incident with max delay
-        return max(congested_incidents, key=lambda incident: incident["properties"]["delay"]), incident_match_debugs
+        return max(congested_incidents, key=lambda incident: int(incident["properties"]["delay"] or 0)), incident_match_debugs

@@ -8,7 +8,7 @@ from app.models.solution import Solution
 from app.models.courier_route import CourierRoute
 from app.models.route import RouteLeg, RouteStatusEnum
 from app.schemas.route_schema import CreateRouteLeg
-
+from app.models.node import Node
 
 class CourierRouteSnapshot(TypedDict):
     courier_route_id: int
@@ -33,6 +33,7 @@ class DueArrivalEvent(TypedDict):
     is_baseline: bool
     congestion_delay_threshold_in_seconds: int
     resequence_improvement_threshold_percent: float
+    to_node_matrix_index: int
 
 
 class NextRouteLegSnapshot(TypedDict):
@@ -219,11 +220,13 @@ class RouteRepository:
                 RouteLeg.sequence,
                 RouteLeg.route_status,
                 Simulation.congestion_delay_threshold_in_seconds,
-                Simulation.resequence_improvement_threshold_percent
+                Simulation.resequence_improvement_threshold_percent,
+                Node.matrix_index,
             )
             .join(CourierRoute, CourierRoute.id == RouteLeg.courier_route_id)
             .join(Solution, Solution.id == CourierRoute.solution_id)
             .join(Simulation, Simulation.id == Solution.simulation_id)
+            .outerjoin(Node, Node.id == RouteLeg.to_node_id)
             .filter(Simulation.status == SimulationStatusEnum.running)
             .filter(RouteLeg.arrival_time <= reference_time)
             .filter(RouteLeg.route_status.in_([RouteStatusEnum.planned, RouteStatusEnum.running, RouteStatusEnum.baseline_planned, RouteStatusEnum.baseline_running]))
@@ -244,6 +247,7 @@ class RouteRepository:
                 "is_baseline": row[7] in [RouteStatusEnum.baseline_planned, RouteStatusEnum.baseline_running],
                 "congestion_delay_threshold_in_seconds": int(row[8]),
                 "resequence_improvement_threshold_percent": int(row[9]),
+                "to_node_matrix_index": int(row[10]) if row[10] is not None else 0,
             }
             for row in rows
         ]

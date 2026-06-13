@@ -3,10 +3,10 @@ from app.repositories.optimization_iteration_repository import OptimizationItera
 from app.repositories.simulation_repository import SimulationRepository
 from app.repositories.solution_repository import SolutionRepository
 from app.repositories.tabu_search_configuration_repository import TabuSearchConfigurationRepository
+from app.services.manual_solver.solver_execution_service import SolverExecutionService
 from app.services.manual_solver_service import ManualSolverService
 from app.repositories.optimization_run_repository import OptimizationRunRepository
 from app.services.matrix_service import MatrixService
-from app.repositories.matrix_repository import MatrixRepository
 from app.repositories.node_repository import NodeRepository
 from app.repositories.courier_repository import CourierRepository
 from app.services.tomtom_service import TomTomService
@@ -20,8 +20,6 @@ async def get_solution_with_manual_solver(simulation_id: str):
             db = next(get_db())
             solver_service = ManualSolverService(
                 matrix_service = MatrixService(
-                    matrix_repository = MatrixRepository(db),
-                    node_repository = NodeRepository(db),
                     tomtom_service = TomTomService(),
                     simulation_repository=SimulationRepository(db),
                 ),
@@ -32,7 +30,9 @@ async def get_solution_with_manual_solver(simulation_id: str):
                 optimization_iteration_repository=OptimizationIterationRepository(db),
                 optimization_run_repository=OptimizationRunRepository(db),
                 daily_optimization_log_repository=DailyOptimizationLogRepository(db),
-                tabu_search_configuration_repository=TabuSearchConfigurationRepository(db)
+                tabu_search_configuration_repository=TabuSearchConfigurationRepository(db),
+                solver_execution_service=SolverExecutionService(),
+                tomtom_service=TomTomService(),
             )
             
             await solver_service.solve(simulation_id)

@@ -38,7 +38,7 @@ async def generate_routes(simulation_id: str):
             route_repository=RouteRepository(db),
             simulation_repository=SimulationRepository(db),
             courier_route_repository=CourierRouteRepository(db),
-            )
+        )
 
         wide_event["stage"] = "generating_routes"
         

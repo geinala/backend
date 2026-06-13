@@ -6,6 +6,7 @@ from app.lib.db import get_db
 from app.lib.logging.logging import get_logger
 from app.repositories.node_repository import NodeRepository
 from app.repositories.simulation_job_repository import SimulationJobRepository
+from app.repositories.simulation_repository import SimulationRepository
 from app.repositories.simulation_uploaded_row_repository import SimulationUploadedRowRepository
 from app.repositories.courier_repository import CourierRepository
 from app.services.pre_optimization.pre_optimization_service import PreOptimizationService
@@ -13,14 +14,14 @@ from app.services.pre_optimization.pre_optimization_service import PreOptimizati
 logger = get_logger(__name__)
 
 
-async def map_nodes(simulation_id: str):
+async def map_nodes(simulation_job_id: str):
     job = get_current_job()
     start_time = time.time()
 
     wide_event: dict[str, object] = {
         "event_type": "worker_map_nodes",
         "job_id": job.id if job else None,
-        "simulation_id": simulation_id,
+        "simulation_job_id": simulation_job_id,
         "status": "processing",
     }
 
@@ -32,17 +33,18 @@ async def map_nodes(simulation_id: str):
             simulation_uploaded_row_repository=SimulationUploadedRowRepository(db),
             courier_repository=CourierRepository(db),
             node_repository=NodeRepository(db),
+            simulation_repository=SimulationRepository(db)
         )
 
         wide_event["stage"] = "mapping_nodes"
-        result = await pre_optimization_service.map_nodes_and_details(simulation_id)
+        result = await pre_optimization_service.map_nodes_and_details(simulation_job_id)
 
         wide_event["status"] = "success"
         wide_event["mapped_nodes"] = result.get("mapped_nodes")
         wide_event["duration_ms"] = (time.time() - start_time) * 1000
         logger.info(wide_event)
 
-        return {"status": "success", "simulation_id": simulation_id}
+        return {"status": "success", "simulation_job_id": simulation_job_id}
 
     except Exception as e:
         wide_event["status"] = "failed"

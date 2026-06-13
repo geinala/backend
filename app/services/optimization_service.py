@@ -1,5 +1,6 @@
 from typing import Any, Callable
 
+from app.lib.logging.logging import get_logger
 from rq.job import Job
 
 from app.configs.worker_configuration import JobType
@@ -12,6 +13,10 @@ from app.workers.solver_worker import get_solution_with_manual_solver
 from app.workers.route_worker import generate_routes
 from app.workers.log_worker import create_simulation_log
 from app.schemas.simulation_log_schema import CreateSimulationLog
+from app.workers.pre_optimization.courier_mapping_worker import map_couriers as map_couriers_to_simulation
+from app.workers.pre_optimization.node_mapping_worker import map_nodes as map_optimization_nodes
+
+logger = get_logger(__name__)
 
 class OptimizationService:
     def __init__(self, matrix_service: MatrixService, simulation_repository: SimulationRepository):
@@ -21,9 +26,10 @@ class OptimizationService:
     async def optimize(self, simulation_id: str) -> None:
         simulation = await self.simulation_repository.get_simulation_by_id(simulation_id)
         
-        if not simulation:
+        if simulation is None:
+            logger.error(f"Simulation with ID {simulation_id} not found")
             raise ValueError(f"Simulation with ID {simulation_id} not found")
-
+        
         last_job: Job | None = None
 
         def add_job(
@@ -31,13 +37,19 @@ class OptimizationService:
             prefix: str | None,
             depends_on: Job | list[Job] | None,
             job_timeout: int | None = None,
+            simulation_job_id: str | None = None,
+            simulation_id: str | None = None
         ) -> Job:
-            kwargs: dict[str, Any] = {
-                "simulation_id": simulation_id,
-            }
+            kwargs: dict[str, Any] = {}
+            
+            if simulation_id is not None:
+                kwargs["simulation_id"] = simulation_id
             
             if job_timeout is not None:
                 kwargs["job_timeout"] = job_timeout
+                
+            if simulation_job_id is not None:
+                kwargs["simulation_job_id"] = simulation_job_id
                 
             return enqueue_job(
                 func,
@@ -65,6 +77,26 @@ class OptimizationService:
                 ),
                 depends_on=depends_on,
             )
+            
+        logger.info(f"Enqueued simulation log for optimization start of simulation {simulation_id}")
+            
+        last_job = add_job(
+            map_couriers_to_simulation,
+            JOB_PREFIXES_ENUM.OPTIMIZATION_PRE_COURIER_MAPPING,
+            simulation_job_id=str(simulation.simulation_job_id),
+            job_timeout=3600,
+            depends_on=last_job
+        )
+
+        logger.info(f"Enqueued courier mapping job {last_job.id} for simulation {simulation_id}")
+
+        last_job = add_job(
+            map_optimization_nodes,
+            JOB_PREFIXES_ENUM.OPTIMIZATION_PRE_NODE_MAPPING,
+            simulation_job_id=str(simulation.simulation_job_id),
+            depends_on=last_job,
+            job_timeout=3600
+        )
 
         add_log(
             OPTIMIZATION_STARTED,
@@ -76,7 +108,7 @@ class OptimizationService:
         last_job = add_job(
             get_solution_with_manual_solver,
             JOB_PREFIXES_ENUM.GET_OPTIMIZATION_RESULT,
-            last_job, job_timeout=3600, 
+            last_job, job_timeout=3600, simulation_id=simulation_id
         )
 
         add_log(
@@ -93,7 +125,7 @@ class OptimizationService:
             depends_on=last_job,
         )
 
-        last_job = add_job(generate_routes, JOB_PREFIXES_ENUM.ROUTE_GENERATION, last_job, job_timeout=3600)
+        last_job = add_job(generate_routes, JOB_PREFIXES_ENUM.ROUTE_GENERATION, last_job, job_timeout=3600, simulation_id=simulation_id)
 
         add_log(
             INITIAL_ROUTE_GENERATED,

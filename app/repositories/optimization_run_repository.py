@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.optimization_run import OptimizationRun
@@ -40,3 +41,35 @@ class OptimizationRunRepository:
         except Exception:
             self.db.rollback()
             raise
+        
+    def get_latest_total_times_per_algorithm(
+        self, simulation_id: str, courier_id: int
+    ) -> dict[str, int]:
+        
+        subq = (
+            self.db.query(
+                OptimizationRun.algorithm,
+                func.max(OptimizationRun.id).label("max_id"),
+            )
+            .filter(
+                OptimizationRun.simulation_id == simulation_id,
+                OptimizationRun.courier_id == courier_id,
+                OptimizationRun.algorithm.in_(["greedy", "tabu_search"]),
+                OptimizationRun.run_type.in_(
+                    ["initial", "duration_update", "reoptimization", "baseline_tracking"]
+                ),
+            )
+            .group_by(OptimizationRun.algorithm)
+            .subquery()
+        )
+    
+        rows = (
+            self.db.query(
+                OptimizationRun.algorithm,
+                OptimizationRun.total_travel_time_in_seconds,
+            )
+            .join(subq, OptimizationRun.id == subq.c.max_id)
+            .all()
+        )
+    
+        return {row.algorithm: int(row.total_travel_time_in_seconds) for row in rows}

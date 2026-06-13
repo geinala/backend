@@ -10,7 +10,7 @@ from app.lib.response_formatter import ResponseFormatter
 from app.services.job_service import enqueue_job
 from app.workers.pre_processing.data_validation_worker import process_files as process_simulation_files
 from app.workers.pre_processing.geocode_worker import geocode_address as process_geocoding
-from app.workers.pre_processing.workflow_continue_worker import continue_workflow as continue_pre_processing_workflow
+from app.workers.pre_processing.workflow_continue_worker import continue_pre_processing_workflow
 
 logger = get_logger(__name__)
 

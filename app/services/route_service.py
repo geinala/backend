@@ -157,7 +157,7 @@ class RouteService:
             UpdateSimulationSchema(
                 initial_total_distance_in_meters=sum(route.total_distance_in_meters for route in courier_routes),
                 initial_total_duration_in_seconds=sum(route.total_time_in_seconds for route in courier_routes),
-                total_nodes=len(nodes),
+                total_nodes=sum(1 for n in nodes if n.matrix_index != 0),
                 total_couriers=len(courier_routes),
                 total_active_couriers=sum(1 for route in courier_routes if route.is_active),
                 status=SimulationStatusEnum.running,

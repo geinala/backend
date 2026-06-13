@@ -29,6 +29,19 @@ class SimulationUploadedRowRepository:
             .all()
         )
         
+    async def get_validated_rows_by_simulation_job_id(self, simulation_job_id: str) -> list[SimulationUploadedRow]:
+        return (
+            self.db.query(SimulationUploadedRow)
+            .filter(
+                SimulationUploadedRow.simulation_job_id == simulation_job_id,
+                SimulationUploadedRow.is_ignored == False,
+                SimulationUploadedRow.latitude.isnot(None),
+                SimulationUploadedRow.longitude.isnot(None),
+            )
+            .order_by(SimulationUploadedRow.id.asc())
+            .all()
+        )
+        
     async def get_uploaded_rows_by_simulation_job_id_and_resolution_status(
         self, simulation_job_id: str, resolution_status: str
     ) -> list[SimulationUploadedRow]:

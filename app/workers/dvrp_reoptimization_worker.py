@@ -11,7 +11,6 @@ from app.repositories.node_repository import NodeRepository
 from app.repositories.optimization_run_repository import OptimizationRunRepository
 from app.repositories.route_repository import RouteRepository
 from app.repositories.simulation_repository import SimulationRepository
-from app.repositories.matrix_repository import MatrixRepository
 from app.repositories.solution_repository import SolutionRepository
 from app.repositories.tabu_search_configuration_repository import TabuSearchConfigurationRepository
 from app.services.dvrp_reoptimization_service import DVRPReoptimizationService
@@ -55,8 +54,6 @@ async def _process_congestion_reoptimization(
             node_repository=NodeRepository(db),
             simulation_repository=SimulationRepository(db),
             matrix_service=MatrixService(
-                matrix_repository=MatrixRepository(db),
-                node_repository=NodeRepository(db),
                 tomtom_service=TomTomService(),
                 simulation_repository=SimulationRepository(db),
             ),

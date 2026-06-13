@@ -194,6 +194,16 @@ def emit_vehicle_returned_to_depot_event(
         courier_route_id=courier_route_id,
         courier_id=courier_id,
     )
+    
+    publish_realtime_event(
+        "VEHICLE_RETURNED_TO_DEPOT",
+        {
+            "simulationId": simulation_id,
+            "courierRouteId": courier_route_id,
+            "courierId": courier_id
+        },
+        simulation_id=simulation_id,
+    )
 
     logger.info(
         {

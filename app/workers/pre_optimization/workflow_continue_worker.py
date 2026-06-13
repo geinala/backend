@@ -6,7 +6,7 @@ from app.services.pre_optimization.pre_optimization_workflow_service import PreO
 logger = get_logger(__name__)
 
 
-async def continue_workflow(simulation_id: str):
+async def continue_pre_optimization_workflow(simulation_job_id: str):
     try:
         db_session = get_db()
         db = next(db_session)
@@ -14,6 +14,6 @@ async def continue_workflow(simulation_id: str):
             simulation_job_repository=SimulationJobRepository(db),
         )
 
-        await pre_optimization_workflow_service.continue_workflow_after_courier_mapping(simulation_id=simulation_id)
+        await pre_optimization_workflow_service.continue_workflow_after_courier_mapping(simulation_job_id=simulation_job_id)
     except Exception as e:
         raise e

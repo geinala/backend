@@ -163,6 +163,7 @@ class DVRPReoptimizationService:
         if current_route_leg is None:
              logger.error(f"Route leg {route_leg_id} not found for congestion handling in simulation {simulation_id}.")
              raise ValueError(f"Route leg {route_leg_id} not found for simulation {simulation_id}.")
+        original_current_leg_travel_time = int(current_route_leg.travel_time_in_seconds)
 
         nodes = self.node_repository.get_nodes_by_simulation_id(simulation_id)
         node_by_matrix_index: dict[int, Node] = {node.matrix_index: node for node in nodes}
@@ -214,12 +215,6 @@ class DVRPReoptimizationService:
         })
 
         old_future_legs = self.route_repository.get_route_legs_by_courier_route_id(courier_route_id)
-        old_future_distance_in_meters = sum(
-            route_leg.distance_in_meters for route_leg in old_future_legs if route_leg.sequence > current_sequence
-        )
-        old_future_time_in_seconds = sum(
-            route_leg.travel_time_in_seconds for route_leg in old_future_legs if route_leg.sequence > current_sequence
-        )
         baseline_total_distance_in_meters = int(snapshot["total_distance_in_meters"])
         baseline_total_time_in_seconds = int(snapshot["total_time_in_seconds"])
         baseline_with_delay_total_time_in_seconds = baseline_total_time_in_seconds + delay_seconds
@@ -245,17 +240,30 @@ class DVRPReoptimizationService:
             self.route_repository.shift_route_legs_after_sequence(courier_route_id, current_sequence + 1, delay_seconds)
 
             current_route_leg.route_status = RouteStatusEnum.baseline_running if is_baseline else RouteStatusEnum.running
-            
-            final_optimization_run = self._store_no_solver_run( 
+
+            latest_times = self.optimization_run_repository.get_latest_total_times_per_algorithm(
+                simulation_id=simulation_id,
+                courier_id=courier_id,
+            )
+
+            greedy_before_time = latest_times.get("greedy", baseline_total_time_in_seconds)
+            tabu_before_time   = latest_times.get("tabu_search", baseline_total_time_in_seconds)
+
+            final_optimization_run = self._store_no_solver_run(
                 simulation_id=simulation_id,
                 congestion_check_id=congestion_check_id,
-                before_total_distance_in_meters=baseline_total_distance_in_meters,
-                before_total_time_in_seconds=baseline_total_time_in_seconds,
-                after_total_distance_in_meters=baseline_total_distance_in_meters,
-                after_total_time_in_seconds=baseline_with_delay_total_time_in_seconds,
+                greedy_before_distance_in_meters=baseline_total_distance_in_meters,
+                greedy_before_time_in_seconds=greedy_before_time,
+                greedy_after_distance_in_meters=baseline_total_distance_in_meters,
+                greedy_after_time_in_seconds=greedy_before_time + delay_seconds,
+                tabu_before_distance_in_meters=baseline_total_distance_in_meters,
+                tabu_before_time_in_seconds=tabu_before_time,
+                tabu_after_distance_in_meters=baseline_total_distance_in_meters,
+                tabu_after_time_in_seconds=tabu_before_time + delay_seconds,
                 courier_id=courier_id,
                 is_baseline=is_baseline,
             )
+            
             return await self._finalize_reoptimization(
                 simulation_id=simulation_id,
                 courier_route_id=courier_route_id,
@@ -275,7 +283,7 @@ class DVRPReoptimizationService:
                 is_baseline=is_baseline,
             )
 
-        reoptimization_departure_time = current_route_leg.arrival_time
+        reoptimization_departure_time = current_route_leg.departure_time
 
         selected_node_indices = [
             destination_node.matrix_index,
@@ -296,6 +304,10 @@ class DVRPReoptimizationService:
             nodes=selected_nodes,
             departure_time=reoptimization_departure_time
         )
+        
+        # logger.warning("TESTING MODE ACTIVE: Memaksa Big M Penalty pada arc [0][1]")
+        # if len(time_matrix) > 0 and len(time_matrix[0]) > 1 and not is_baseline:
+        #     time_matrix[0][1] = time_matrix[0][1] + delay_seconds
             
         logger.info(f"Time matrix after TomTom generation: {time_matrix}")
         
@@ -347,6 +359,7 @@ class DVRPReoptimizationService:
         
         greedy_route_nodes = process_solver_tour(solver_result.greedy_assignment.tour)
         tabu_route_nodes = process_solver_tour(solver_result.tabu_assignment.tour)
+        
         greedy_result: SolverResult = {
             "algorithm": "greedy",
             "route_nodes": greedy_route_nodes,
@@ -393,41 +406,73 @@ class DVRPReoptimizationService:
             "tabu_raw_route": tabu_result["route_nodes"]
         })
 
-        route_points = ":".join(self._build_route_points(tabu_result["route_nodes"], node_by_matrix_index))
-        route_response = cast(TomTomResponse, self.tomtom_service.generate_routes(
-            route_points, depart_at=format_departure_time(reoptimization_departure_time)
-        ))
-        tabu_summary = route_response["routes"][0]["summary"]
+        tabu_route_points = ":".join(self._build_route_points(tabu_result["route_nodes"], node_by_matrix_index))
+        greedy_route_points = ":".join(self._build_route_points(greedy_result["route_nodes"], node_by_matrix_index))
         
-        global_to_local_idx = {matrix_idx: local_idx for local_idx, matrix_idx in enumerate(selected_node_indices)}
-        local_greedy_route = [global_to_local_idx[node_idx] for node_idx in greedy_result["route_nodes"]]
+        logger.warning({
+            "greedy_route_nodes": greedy_result["route_nodes"],
+            "greedy_route_points": greedy_route_points,
 
-        greedy_distance = self._calculate_route_distance(local_greedy_route, distance_matrix)
-
+            "tabu_route_nodes": tabu_result["route_nodes"],
+            "tabu_route_points": tabu_route_points,
+        })
+        
+        tabu_route_response = cast(TomTomResponse, self.tomtom_service.generate_routes(
+            tabu_route_points, depart_at=format_departure_time(reoptimization_departure_time)
+        ))
+        tabu_summary = tabu_route_response["routes"][0]["summary"]
+        
+        greedy_route_response = cast(TomTomResponse, self.tomtom_service.generate_routes(
+            greedy_route_points, depart_at=format_departure_time(reoptimization_departure_time)
+        ))
+        greedy_summary = greedy_route_response["routes"][0]["summary"]
+        
+        past_distance = sum(
+            leg.distance_in_meters for leg in old_future_legs if leg.sequence < current_sequence
+        )
+        past_time = sum(
+            leg.travel_time_in_seconds for leg in old_future_legs if leg.sequence < current_sequence
+        )
+        
+        historical_distance_in_meters = past_distance + int(current_route_leg.distance_in_meters)
+        historical_time_in_seconds = past_time + original_current_leg_travel_time + delay_seconds
+        
+        logger.info({
+            "event_type": "DEBUG_HISTORICAL_TIME_CHECK",
+            "current_leg_travel_time_before_calc": current_route_leg.travel_time_in_seconds,
+            "delay_seconds": delay_seconds,
+            "past_time": past_time,
+        })
+        
+        baseline_future_time = sum(
+            leg.travel_time_in_seconds for leg in old_future_legs if leg.sequence > current_sequence
+        )
+        fair_baseline_total_time_in_seconds = historical_time_in_seconds + baseline_future_time
+        
         greedy_plan: CandidatePlan = {
             "algorithm": "greedy",
             "route": greedy_result["route_nodes"],
             "computation_time_in_ms": greedy_result["computation_time_in_ms"],
             "nodes_explored": greedy_result["nodes_explored"],
-            "future_distance_in_meters": greedy_distance,
-            "future_time_in_seconds": greedy_result["internal_time_in_seconds"],
-            "estimated_total_distance_in_meters": baseline_total_distance_in_meters - old_future_distance_in_meters + greedy_distance,
-            "estimated_total_time_in_seconds": baseline_total_time_in_seconds + delay_seconds + (greedy_result["internal_time_in_seconds"] - old_future_time_in_seconds),
-            "route_response": None,
-            "summary": None,
+            "future_distance_in_meters": int(greedy_summary["lengthInMeters"]),
+            "future_time_in_seconds": int(greedy_summary["travelTimeInSeconds"]),
+            "estimated_total_distance_in_meters": historical_distance_in_meters + int(greedy_summary["lengthInMeters"]),
+            "estimated_total_time_in_seconds": historical_time_in_seconds + int(greedy_summary["travelTimeInSeconds"]),
+            "route_response": greedy_route_response,
+            "summary": greedy_summary,
         }
 
         tabu_plan: CandidatePlan = {
             "algorithm": "tabu_search",
             "route": tabu_result["route_nodes"],
-            "route_response": route_response,
-            "summary": tabu_summary,
             "computation_time_in_ms": tabu_result["computation_time_in_ms"],
             "nodes_explored": tabu_result["nodes_explored"],
             "future_distance_in_meters": int(tabu_summary["lengthInMeters"]),
             "future_time_in_seconds": int(tabu_summary["travelTimeInSeconds"]),
-            "estimated_total_distance_in_meters": baseline_total_distance_in_meters - old_future_distance_in_meters + int(tabu_summary["lengthInMeters"]),
-            "estimated_total_time_in_seconds": baseline_total_time_in_seconds + delay_seconds + (int(tabu_summary["travelTimeInSeconds"]) - old_future_time_in_seconds),
+            "estimated_total_distance_in_meters": historical_distance_in_meters + int(tabu_summary["lengthInMeters"]),
+            "estimated_total_time_in_seconds": historical_time_in_seconds + int(tabu_summary["travelTimeInSeconds"]),
+            "route_response": tabu_route_response,
+            "summary": tabu_summary,
         }
 
         self._store_reoptimization_comparison_runs(
@@ -443,13 +488,13 @@ class DVRPReoptimizationService:
         final_candidate = tabu_plan
 
         candidate_time = int(final_candidate["estimated_total_time_in_seconds"])
-        time_improved = candidate_time < baseline_with_delay_total_time_in_seconds
+        time_improved = candidate_time < fair_baseline_total_time_in_seconds
         
         improvement_percentage = 0.0
         
-        if time_improved and baseline_with_delay_total_time_in_seconds > 0:
-            improvement_percentage = ((baseline_with_delay_total_time_in_seconds - candidate_time) / baseline_with_delay_total_time_in_seconds) * 100.0
-        
+        if time_improved and fair_baseline_total_time_in_seconds > 0:
+            improvement_percentage = ((fair_baseline_total_time_in_seconds - candidate_time) / fair_baseline_total_time_in_seconds) * 100.0        
+
         original_comparison_sequence = [destination_node.matrix_index, *remaining_node_indices]
         sequence_changed = self._is_sequence_changed(
             original_node_indices=original_comparison_sequence,
@@ -458,7 +503,37 @@ class DVRPReoptimizationService:
         )
         
         is_above_threshold = improvement_percentage >= resequence_improvement_threshold_percent
+
+        # Just for testing, we want to see resequencing happen more often in dev environment
+        # route_resequenced = (
+        #      sequence_changed
+        #      if self.settings.ENVIRONMENT == "development"
+        #      else (time_improved and sequence_changed and is_above_threshold) 
+        #  )
+        
         route_resequenced = time_improved and sequence_changed and is_above_threshold
+        
+        logger.info({
+            "event_type": "DEBUG_RESEQUENCE_EVALUATION",
+            "courier_route_id": courier_route_id,
+            "courier_id": courier_id,
+            "fair_baseline_total_time_in_seconds": fair_baseline_total_time_in_seconds,
+            "candidate_estimated_total_time_in_seconds": candidate_time,
+            "improvement_percentage": round(improvement_percentage, 4),
+            "threshold_percentage": resequence_improvement_threshold_percent,
+            "time_improved": time_improved,
+            "sequence_changed": sequence_changed,
+            "is_above_threshold": is_above_threshold,
+            "decision_route_resequenced": route_resequenced,
+            "tabu_tomtom_summary": final_candidate["summary"],
+            "greedy_tomtom_summary": greedy_plan["summary"],
+            "tabu_estimated_total_distance_in_meters": historical_distance_in_meters + int(tabu_summary["lengthInMeters"]),
+            "tabu_estimated_total_time_in_seconds": historical_time_in_seconds + int(tabu_summary["travelTimeInSeconds"]),
+            "greedy_estimated_total_distance_in_meters": historical_distance_in_meters + int(greedy_summary["lengthInMeters"]),
+            "greedy_estimated_total_time_in_seconds": historical_time_in_seconds + int(greedy_summary["travelTimeInSeconds"]),
+            "historical_distance_in_meters": historical_distance_in_meters,
+            "historical_time_in_seconds": historical_time_in_seconds,
+        })
 
         final_new_courier_route_id: int | None = None
 
@@ -587,6 +662,7 @@ class DVRPReoptimizationService:
             tabu_candidate=tabu_plan,
             selected_algorithm=final_candidate["algorithm"],
             courier_id=courier_id,
+            final_outcome=final_outcome,
         )
 
         logger.info(
@@ -625,6 +701,10 @@ class DVRPReoptimizationService:
                 "time_improved": time_improved,
                 "sequence_changed": sequence_changed,
                 "route_resequenced": route_resequenced,
+                "improvement_percentage": round(improvement_percentage, 2),
+                "is_above_threshold": is_above_threshold,
+                "route_resequenced": route_resequenced,
+                "resequence_improvement_threshold_percent": resequence_improvement_threshold_percent,
             }
         )
 
@@ -712,18 +792,26 @@ class DVRPReoptimizationService:
         new_incidents_count = int(cast(int, getattr(simulation, "total_incidents_affecting_routes", 0) or 0)) + 1
 
         if not is_baseline:
+            initial_total_distance = int(cast(int, getattr(simulation, "initial_total_distance_in_meters", 0) or 0))
+            initial_total_duration = int(cast(int, getattr(simulation, "initial_total_duration_in_seconds", 0) or 0))
+            distance_delta = after_total_distance_in_meters - before_total_distance_in_meters
+            duration_delta = after_total_time_in_seconds - before_total_time_in_seconds
+            final_total_distance = initial_total_distance + distance_delta
+            final_total_duration = initial_total_duration + duration_delta
+    
             schema_payload = UpdateSimulationSchema(
                 total_incidents_affecting_routes=new_incidents_count,
-                final_total_distance_in_meters=after_total_distance_in_meters,
-                final_total_duration_in_seconds=after_total_time_in_seconds,
-                distance_improvement_in_meters=int(cast(int, getattr(simulation, "initial_total_distance_in_meters", 0) or 0)) - after_total_distance_in_meters,
-                duration_improvement_in_seconds=int(cast(int, getattr(simulation, "initial_total_duration_in_seconds", 0) or 0)) - after_total_time_in_seconds,
+                final_total_distance_in_meters=final_total_distance,
+                final_total_duration_in_seconds=final_total_duration,
+                distance_improvement_in_meters=initial_total_distance - final_total_distance,
+                duration_improvement_in_seconds=initial_total_duration - final_total_duration,
                 total_reoptimized_routes=int(cast(int, getattr(simulation, "total_reoptimized_routes", 0) or 0)) + 1,
             )
         else:
             schema_payload = UpdateSimulationSchema(
                 total_incidents_affecting_routes=new_incidents_count,
             )
+            
         await self.simulation_repository.update_simulation(simulation_id, schema_payload)
 
         metadata_dict: dict[str, str | int | float | None] = {
@@ -776,10 +864,14 @@ class DVRPReoptimizationService:
         simulation_id: str,
         courier_id: int,
         congestion_check_id: int | None,
-        before_total_distance_in_meters: int,
-        before_total_time_in_seconds: int,
-        after_total_distance_in_meters: int,
-        after_total_time_in_seconds: int,
+        greedy_before_distance_in_meters: int,
+        greedy_before_time_in_seconds: int,
+        greedy_after_distance_in_meters: int,
+        greedy_after_time_in_seconds: int,
+        tabu_before_distance_in_meters: int,
+        tabu_before_time_in_seconds: int,
+        tabu_after_distance_in_meters: int,
+        tabu_after_time_in_seconds: int,
         is_baseline: bool,
     ) -> OptimizationRun:
         from uuid import UUID
@@ -794,13 +886,13 @@ class DVRPReoptimizationService:
                     run_type=run_type_val,
                     algorithm="greedy",
                     trigger_type="traffic_incident",
-                    total_distance_in_meters=after_total_distance_in_meters,
-                    total_travel_time_in_seconds=after_total_time_in_seconds,
+                    total_distance_in_meters=greedy_after_distance_in_meters,
+                    total_travel_time_in_seconds=greedy_after_time_in_seconds,
                     computation_time_in_ms=0.0,
                     total_nodes_explored=0,
                     congestion_check_id=congestion_check_id,
-                    before_total_distance_in_meters=before_total_distance_in_meters,
-                    before_total_travel_time_in_seconds=before_total_time_in_seconds,
+                    before_total_distance_in_meters=greedy_before_distance_in_meters,
+                    before_total_travel_time_in_seconds=greedy_before_time_in_seconds,
                     triggered_at=triggered_time,
                     courier_id=courier_id
                 ),
@@ -809,13 +901,13 @@ class DVRPReoptimizationService:
                     run_type=run_type_val,
                     algorithm="tabu_search",
                     trigger_type="traffic_incident",
-                    total_distance_in_meters=after_total_distance_in_meters,
-                    total_travel_time_in_seconds=after_total_time_in_seconds,
+                    total_distance_in_meters=tabu_after_distance_in_meters,
+                    total_travel_time_in_seconds=tabu_after_time_in_seconds,
                     computation_time_in_ms=0.0,
                     total_nodes_explored=0,
                     congestion_check_id=congestion_check_id,
-                    before_total_distance_in_meters=before_total_distance_in_meters,
-                    before_total_travel_time_in_seconds=before_total_time_in_seconds,
+                    before_total_distance_in_meters=tabu_before_distance_in_meters,
+                    before_total_travel_time_in_seconds=tabu_before_time_in_seconds,
                     triggered_at=triggered_time,
                     courier_id=courier_id
                 )
@@ -835,6 +927,7 @@ class DVRPReoptimizationService:
         greedy_candidate: CandidatePlan,
         tabu_candidate: CandidatePlan,
         selected_algorithm: AlgorithmLiteral,
+        final_outcome: ReoptimizationOutcomeEnum,
     ) -> OptimizationRun:
         from uuid import UUID
 
@@ -844,7 +937,7 @@ class DVRPReoptimizationService:
             [
                 CreateOptimizationRun(
                     simulation_id=UUID(simulation_id),
-                    run_type="reoptimization",
+                    run_type="duration_update" if final_outcome != ReoptimizationOutcomeEnum.resequence_applied else "reoptimization",
                     algorithm=greedy_candidate["algorithm"],
                     trigger_type="traffic_incident",
                     total_distance_in_meters=int(greedy_candidate["estimated_total_distance_in_meters"]),
@@ -859,7 +952,7 @@ class DVRPReoptimizationService:
                 ),
                 CreateOptimizationRun(
                     simulation_id=UUID(simulation_id),
-                    run_type="reoptimization",
+                    run_type="duration_update" if final_outcome != ReoptimizationOutcomeEnum.resequence_applied else "reoptimization",
                     algorithm=tabu_candidate["algorithm"],
                     trigger_type="traffic_incident",
                     total_distance_in_meters=int(tabu_candidate["estimated_total_distance_in_meters"]),
@@ -875,7 +968,7 @@ class DVRPReoptimizationService:
             ]
         )
 
-        selected_index = 0 if selected_algorithm in ["greedy_or_tools", "greedy_with_2opt", "greedy_without_2opt"] else 1
+        selected_index = 0 if selected_algorithm in ["greedy", "tabu_search"] else 1
         return created_runs[selected_index]
 
     def _build_reoptimized_route_legs(

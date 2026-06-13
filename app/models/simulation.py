@@ -8,7 +8,6 @@ from sqlalchemy import (
     DateTime,
     Enum,
     Float,
-    ForeignKey,
     Integer,
     String,
     func,

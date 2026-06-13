@@ -18,7 +18,7 @@ class PreProcessingWorkflowService:
         ):
         self.simulation_job_repository = simulation_job_repository
     
-    async def continue_workflow_after_file_validation(self, simulation_job_id: str):
+    async def continue_pre_processing_workflow(self, simulation_job_id: str):
         try:
             simulation_job = await self.simulation_job_repository.get_simulation_job_by_id(simulation_job_id)
             

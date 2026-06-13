@@ -46,7 +46,7 @@ class TrafficIncidentRepository:
             "simulation_id": uuid.UUID(simulation_id),
             "detected_at": detected_at,
             "category": int(incident_properties["iconCategory"]),
-            "delay_in_seconds": int(incident_properties["delay"]),
+            "delay_in_seconds": int(incident_properties["delay"] or 0),
             "geometry": json.dumps(incident["geometry"]),
             "start_time": self._parse_tomtom_datetime(incident_properties["startTime"]) or datetime.now(timezone.utc),
             "end_time": self._parse_tomtom_datetime(incident_properties.get("endTime")),

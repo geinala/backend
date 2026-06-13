@@ -25,6 +25,7 @@ from app.repositories.tabu_search_configuration_repository import TabuSearchConf
 from app.repositories.daily_optimization_log_repository import DailyOptimizationLogRepository
 from app.schemas.daily_optimization_log_schema import DailyOptimizationLogCreate
 from app.services.manual_solver.solver_execution_service import SolverExecutionService, TabuSearchConfig, SolverResult
+from app.services.tomtom_service import TomTomRouteResultResponse, TomTomService
 
 logger = get_logger(__name__)
 
@@ -48,7 +49,8 @@ class ManualSolverService:
         optimization_run_repository: OptimizationRunRepository,
         tabu_search_configuration_repository: TabuSearchConfigurationRepository,
         daily_optimization_log_repository: DailyOptimizationLogRepository,
-        solver_execution_service: SolverExecutionService | None = None,
+        solver_execution_service: SolverExecutionService,
+        tomtom_service: TomTomService,
     ) -> None:
         self.matrix_service = matrix_service
         self.courier_repository = courier_repository
@@ -59,7 +61,8 @@ class ManualSolverService:
         self.optimization_run_repository = optimization_run_repository
         self.tabu_search_configuration_repository = tabu_search_configuration_repository
         self.daily_optimization_log_repository = daily_optimization_log_repository
-        self.solver_execution_service = solver_execution_service or SolverExecutionService()
+        self.solver_execution_service = solver_execution_service
+        self.tomtom_service = tomtom_service
 
     async def solve_no_improvement(self, simulation_id: str) -> None:
         await self.solve(simulation_id)
@@ -156,10 +159,33 @@ class ManualSolverService:
                 n_nodes=n_nodes,
                 tabu_config=tabu_config,
             )
+            
+            greedy_parsed = self._parse_assignment(result.greedy_assignment, selected_node_indices, courier)
+            tabu_parsed = self._parse_assignment(result.tabu_assignment, selected_node_indices, courier)
+            
+            greedy_points = self._build_route_points(greedy_parsed.tour, nodes_for_matrix)
+            tabu_points = self._build_route_points(tabu_parsed.tour, nodes_for_matrix)
+            
+            from app.lib.date_converter import format_departure_time
+            depart_at_str = format_departure_time(now)
+            
+            logger.info(f"[POINTS] Kurir {courier.id} - {courier.name} | Greedy Points: {greedy_points} | Tabu Points: {tabu_points}")
+            
+            greedy_tomtom: TomTomRouteResultResponse = self.tomtom_service.generate_routes(greedy_points, depart_at=depart_at_str)
+            tabu_tomtom: TomTomRouteResultResponse = self.tomtom_service.generate_routes(tabu_points, depart_at=depart_at_str)
+            
+            greedy_summary = greedy_tomtom["routes"][0]["summary"]
+            tabu_summary = tabu_tomtom["routes"][0]["summary"]
+            
+            greedy_parsed.total_distance_in_meters = int(greedy_summary["lengthInMeters"])
+            greedy_parsed.total_duration_in_seconds = int(greedy_summary["travelTimeInSeconds"])
+            
+            tabu_parsed.total_distance_in_meters = int(tabu_summary["lengthInMeters"])
+            tabu_parsed.total_duration_in_seconds = int(tabu_summary["travelTimeInSeconds"])
 
             log_total_nodes += n_nodes
-            log_total_greedy_fitness += result.greedy_assignment.total_duration_in_seconds
-            log_total_tabu_fitness += result.tabu_assignment.total_duration_in_seconds
+            log_total_greedy_fitness += greedy_parsed.total_duration_in_seconds
+            log_total_tabu_fitness += tabu_parsed.total_duration_in_seconds
             log_total_execution_ms += result.tabu_time_ms
 
             triggered_at = datetime.now(timezone.utc)
@@ -170,19 +196,19 @@ class ManualSolverService:
                     courier_id=courier.id,
                     result=result,
                     triggered_at=triggered_at,
+                    greedy_parsed=greedy_parsed,
+                    tabu_parsed=tabu_parsed,
                 )
             )
 
-            route = self._parse_assignment(result.tabu_assignment, selected_node_indices, courier)
-
             solution = await self.solution_repository.insert_solution(
                 CreateSolution(
-                    routes=route.tour,
+                    routes=tabu_parsed.tour,
                     demand_in_kilograms=total_courier_demand,
-                    time_in_seconds=route.total_duration_in_seconds,
-                    courier_id=route.courier_id,
+                    time_in_seconds=tabu_parsed.total_duration_in_seconds,
+                    courier_id=tabu_parsed.courier_id,
                     simulation_id=simulation_id,
-                    distance_in_meters=route.total_distance_in_meters,
+                    distance_in_meters=tabu_parsed.total_distance_in_meters,
                 )
             )
 
@@ -274,6 +300,8 @@ class ManualSolverService:
         simulation_id: str,
         courier_id: int,
         result: SolverResult,
+        greedy_parsed: ParsedAssignment,
+        tabu_parsed: ParsedAssignment,
         triggered_at: datetime,
     ) -> list[CreateOptimizationRun]:
         return [
@@ -282,10 +310,10 @@ class ManualSolverService:
                 run_type="initial",
                 algorithm="greedy",
                 trigger_type="initial",
-                total_distance_in_meters=int(result.greedy_assignment.total_distance_in_meters),
-                total_travel_time_in_seconds=int(result.greedy_assignment.total_duration_in_seconds),
+                total_distance_in_meters=int(greedy_parsed.total_distance_in_meters),
+                total_travel_time_in_seconds=int(greedy_parsed.total_duration_in_seconds),
                 computation_time_in_ms=result.greedy_time_ms,
-                total_nodes_explored=len(result.greedy_assignment.tour),
+                total_nodes_explored=len(greedy_parsed.tour),
                 congestion_check_id=None,
                 triggered_at=triggered_at,
                 courier_id=courier_id,
@@ -295,13 +323,13 @@ class ManualSolverService:
                 run_type="initial",
                 algorithm="tabu_search",
                 trigger_type="initial",
-                total_distance_in_meters=int(result.tabu_assignment.total_distance_in_meters),
-                total_travel_time_in_seconds=int(result.tabu_assignment.total_duration_in_seconds),
+                total_distance_in_meters=int(tabu_parsed.total_distance_in_meters),
+                total_travel_time_in_seconds=int(tabu_parsed.total_duration_in_seconds),
                 computation_time_in_ms=result.tabu_time_ms,
-                total_nodes_explored=len(result.tabu_assignment.tour),
+                total_nodes_explored=len(tabu_parsed.tour),
                 congestion_check_id=None,
-                before_total_distance_in_meters=int(result.greedy_assignment.total_distance_in_meters),
-                before_total_travel_time_in_seconds=int(result.greedy_assignment.total_duration_in_seconds),
+                before_total_distance_in_meters=int(greedy_parsed.total_distance_in_meters),
+                before_total_travel_time_in_seconds=int(greedy_parsed.total_duration_in_seconds),
                 triggered_at=triggered_at,
                 courier_id=courier_id,
             ),
@@ -388,3 +416,14 @@ class ManualSolverService:
             [full_matrix[origin][destination] for destination in node_indices]
             for origin in node_indices
         ]
+        
+    def _build_route_points(self, global_tour: list[int], nodes_for_matrix: list[Node]) -> str:
+        node_map = {n.matrix_index: n for n in nodes_for_matrix}
+        
+        route_points: list[str] = []
+        for matrix_idx in global_tour:
+            node = node_map.get(matrix_idx)
+            if node:
+                route_points.append(f"{node.latitude},{node.longitude}")
+        
+        return ":".join(route_points)
