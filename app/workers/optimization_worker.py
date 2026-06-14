@@ -1,3 +1,4 @@
+from app.repositories.matrix_repository import MatrixRepository
 from app.services.matrix_service import MatrixService
 from app.repositories.simulation_repository import SimulationRepository
 from app.services.optimization_service import OptimizationService
@@ -15,7 +16,8 @@ async def optimize(simulation_id: str):
             optimization_service = OptimizationService(
                 matrix_service = MatrixService(
                     tomtom_service = TomTomService(),
-                    simulation_repository = simulation_repository
+                    simulation_repository = simulation_repository,
+                    matrix_repository = MatrixRepository(db)
                 ),
                 simulation_repository = simulation_repository
             )

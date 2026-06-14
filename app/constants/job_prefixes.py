@@ -25,3 +25,4 @@ class JOB_PREFIXES_ENUM(str, Enum):
     DVRP_REOPTIMIZATION = JobType.HEAVY.value + "-" + "dvrp_reoptimization"
     FINALIZE_SOLVER = JobType.LIGHT.value + "-" + "solver_finalize"
     SIMULATION_LOG = JobType.LIGHT.value + "-" + "simulation_log"
+    SAVE_MATRIX = JobType.LIGHT.value + "-" + "save_matrix"

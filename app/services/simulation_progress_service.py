@@ -290,7 +290,7 @@ class SimulationProgressService:
             else:
                 accepted_incidents = [congestion_result]
 
-            selected_incident = max(accepted_incidents, key=lambda inc: int(inc["properties"]["delay"] or 0))
+            selected_incident = max(accepted_incidents, key=self._get_incident_delay)
             selected_tomtom_incident_id = selected_incident["properties"]["id"]
 
             for inc in accepted_incidents:
@@ -440,6 +440,8 @@ class SimulationProgressService:
         proximity_threshold_m: float = 30.0,
     ) -> dict[str, object]:
         incident_properties = incident["properties"]
+        incident_delay = self._get_incident_delay(incident)
+        
         incident_points = build_coordinate_points(incident["geometry"]["coordinates"])
         is_valid_congestion, overlap_ratio, route_intersects = incident_matches_route(
             route_points=route_points,
@@ -454,7 +456,7 @@ class SimulationProgressService:
         )
 
         rejected_reasons: list[str] = []
-        if threshold_seconds is not None and int(incident_properties["delay"] or 0) <= threshold_seconds:
+        if threshold_seconds is not None and incident_delay <= threshold_seconds:
             rejected_reasons.append("delay_below_threshold")
         if not route_intersects and overlap_ratio < overlap_threshold_ratio:
             rejected_reasons.append("insufficient_route_overlap")
@@ -463,7 +465,7 @@ class SimulationProgressService:
 
         return {
             "incident_id": incident_properties["id"],
-            "incident_delay_seconds": incident_properties["delay"],
+            "incident_delay_seconds": incident_delay,
             "route_point_count": len(route_points),
             "incident_point_count": len(incident_points),
             "route_intersects": route_intersects,
@@ -539,7 +541,7 @@ class SimulationProgressService:
             proximity_threshold_m = cast(int, incident_match_debug["proximity_threshold_m"])
             row: CongestionCheckIncidentRow = {
                 "traffic_incident_id": stored_incident.id if stored_incident is not None else None,
-                "delay_in_seconds": int(incident["properties"]["delay"] or 0),
+                "delay_in_seconds": self._get_incident_delay(incident),
                 "overlap_ratio": overlap_ratio,
                 "rejected_reasons": rejected_reasons,
                 "route_intersects": bool(incident_match_debug.get("route_intersects", False)),
@@ -625,4 +627,28 @@ class SimulationProgressService:
             return congested_incidents, incident_match_debugs
 
         # Default behavior: return single incident with max delay
-        return max(congested_incidents, key=lambda incident: int(incident["properties"]["delay"] or 0)), incident_match_debugs
+        return max(congested_incidents, key=self._get_incident_delay), incident_match_debugs
+    
+    @staticmethod
+    def _get_incident_delay(incident: IncidentFeature) -> int:
+        properties = incident["properties"]
+
+        # Gunakan delay asli dari TomTom jika tersedia
+        delay = properties.get("delay")
+        if delay is not None and int(delay) > 0:
+            return int(delay)
+
+        icon_category = properties.get("iconCategory", 0)
+
+        # Fallback delay (detik)
+        fallbacks = {
+            1: 900,      # Accident (15 menit)
+            6: 600,      # Traffic Jam (10 menit)
+            7: 900,      # Lane Closed (15 menit)
+            8: 99999,    # Road Closed
+            9: 1200,     # Road Works (20 menit)
+            11: 99999,   # Flooding
+            14: 600,     # Broken Down Vehicle (10 menit)
+        }
+
+        return fallbacks.get(icon_category, 0)

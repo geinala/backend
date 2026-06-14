@@ -1,4 +1,5 @@
 from app.repositories.daily_optimization_log_repository import DailyOptimizationLogRepository
+from app.repositories.matrix_repository import MatrixRepository
 from app.repositories.optimization_iteration_repository import OptimizationIterationRepository
 from app.repositories.simulation_repository import SimulationRepository
 from app.repositories.solution_repository import SolutionRepository
@@ -22,6 +23,7 @@ async def get_solution_with_manual_solver(simulation_id: str):
                 matrix_service = MatrixService(
                     tomtom_service = TomTomService(),
                     simulation_repository=SimulationRepository(db),
+                    matrix_repository=MatrixRepository(db),
                 ),
                 courier_repository = CourierRepository(db),
                 node_repository = NodeRepository(db),

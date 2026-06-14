@@ -4,6 +4,7 @@ from uuid import UUID
 
 from app.lib.logging.logging import get_logger
 from app.models.courier import Courier
+from app.models.matrix import MatrixTypeEnum
 from app.models.node import Node
 from app.repositories.node_repository import NodeRepository
 from app.repositories.optimization_iteration_repository import OptimizationIterationRepository
@@ -125,6 +126,15 @@ class ManualSolverService:
             time_matrix, distance_matrix = await self.matrix_service.generate_live_distance_matrix_and_time_matrix(
                 nodes=nodes_for_matrix,
                 departure_time=now
+            )
+            
+            await self.matrix_service.dispatch_matrix_saving_job(
+                courier_id=courier.id,
+                simulation_id=simulation_id,
+                distance_matrix=distance_matrix,
+                matrix_stage=0,
+                matrix_type=MatrixTypeEnum.initial,
+                time_matrix=time_matrix
             )
             
             n_nodes = len(selected_node_indices) - 1

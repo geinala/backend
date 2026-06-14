@@ -7,6 +7,7 @@ from app.lib.db import get_db
 from app.lib.logging.logging import get_logger
 from app.repositories.courier_route_repository import CourierRouteRepository
 from app.repositories.daily_optimization_log_repository import DailyOptimizationLogRepository
+from app.repositories.matrix_repository import MatrixRepository
 from app.repositories.node_repository import NodeRepository
 from app.repositories.optimization_run_repository import OptimizationRunRepository
 from app.repositories.route_repository import RouteRepository
@@ -56,6 +57,7 @@ async def _process_congestion_reoptimization(
             matrix_service=MatrixService(
                 tomtom_service=TomTomService(),
                 simulation_repository=SimulationRepository(db),
+                matrix_repository=MatrixRepository(db),
             ),
             tomtom_service=TomTomService(),
             optimization_run_repository=OptimizationRunRepository(db),

@@ -10,6 +10,7 @@ from app.lib.logging.logging import get_logger
 from app.lib.route_geometry import decode_polyline
 from app.models.courier import Courier
 from app.models.courier_route import CourierRoute
+from app.models.matrix import MatrixTypeEnum
 from app.models.simulation import Simulation
 from app.models.reoptimization_event import ReoptimizationEvent, ReoptimizationOutcomeEnum
 from app.models.route import RouteLeg, RouteStatusEnum
@@ -335,10 +336,24 @@ class DVRPReoptimizationService:
             nodes=selected_nodes,
             departure_time=reoptimization_departure_time
         )
+        latest_stage = await self.matrix_service.get_latest_matrix_stage(simulation_id, courier_id, MatrixTypeEnum.reoptimized)
+        
+        if latest_stage < 0:
+            logger.error(f"Latest matrix stage for simulation {simulation_id}, courier {courier_id}, type {MatrixTypeEnum.reoptimized} is invalid: {latest_stage}")
+            raise ValueError(f"Latest matrix stage is invalid: {latest_stage}")
         
         # logger.warning("TESTING MODE ACTIVE: Memaksa Big M Penalty pada arc [0][1]")
         # if len(time_matrix) > 0 and len(time_matrix[0]) > 1 and not is_baseline:
         #     time_matrix[0][1] = time_matrix[0][1] + delay_seconds
+        
+        await self.matrix_service.dispatch_matrix_saving_job(
+            courier_id=courier_id,
+            simulation_id=simulation_id,
+            distance_matrix=distance_matrix,
+            matrix_stage=latest_stage + 1,
+            matrix_type=MatrixTypeEnum.reoptimized,
+            time_matrix=time_matrix
+        )
             
         logger.info(f"Time matrix after TomTom generation: {time_matrix}")
         
